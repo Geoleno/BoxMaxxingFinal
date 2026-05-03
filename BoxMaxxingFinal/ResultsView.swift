@@ -351,8 +351,7 @@ struct DetailSheetView: View {
                     .padding(.bottom, 4)
 
                 Group {
-                    Text("\(Int(event.confidence * 100))% confidence")
-                    + (event.detectedAs != nil ? Text(" · Detected as \(event.detectedAs!)") : Text(""))
+                    Text("\(Int(event.confidence * 100))% confidence\(event.detectedAs != nil ? " · Detected as \(event.detectedAs!)" : "")")
                 }
                 .font(.system(size: 15))
                 .foregroundColor(Color(UIColor.secondaryLabel))
@@ -458,7 +457,7 @@ private struct VideoPanel: View {
 
                 let s = StrokeStyle(lineWidth: 0)
                 let c = Color(red: 0.04, green: 0.03, blue: 0.03)
-                var head = Path(ellipseIn: CGRect(x: 178, y: 58, width: 44, height: 44))
+                let head = Path(ellipseIn: CGRect(x: 178, y: 58, width: 44, height: 44))
                 context.fill(head, with: .color(c))
                 var torso = Path()
                 torso.move(to: .init(x: 170, y: 100)); torso.addQuadCurve(to: .init(x: 230, y: 100), control: .init(x: 200, y: 92))
@@ -486,10 +485,10 @@ private struct VideoPanel: View {
                     line.move(to: .init(x: 165, y: 130)); line.addLine(to: .init(x: 300, y: 110))
                     context.stroke(line, with: .color(green),
                                    style: StrokeStyle(lineWidth: 1.5 / min(sx, sy), dash: [4, 4]))
-                    var ring = Path(ellipseIn: CGRect(x: 294, y: 104, width: 12, height: 12))
+                    let ring = Path(ellipseIn: CGRect(x: 294, y: 104, width: 12, height: 12))
                     context.stroke(ring, with: .color(green),
                                    style: StrokeStyle(lineWidth: 1.5 / min(sx, sy)))
-                    var dot = Path(ellipseIn: CGRect(x: 161, y: 126, width: 8, height: 8))
+                    let dot = Path(ellipseIn: CGRect(x: 161, y: 126, width: 8, height: 8))
                     context.fill(dot, with: .color(green))
                 }
                 Text("Extend")
