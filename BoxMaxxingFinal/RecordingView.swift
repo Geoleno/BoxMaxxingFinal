@@ -14,21 +14,21 @@ struct RecordingView: View {
     let onFinish: () -> Void
     let onCancel: () -> Void
 
+    @EnvironmentObject private var sessionManager: SessionManager
+
     @State private var phase: RecordingPhase = .hint
     @State private var countdownValue: Int = 3
-    @State private var elapsed: Int = 0
-    @State private var livePunches: [LivePunch] = []
-    @State private var elapsedTimer: Timer?
-    @State private var detectionTimer: Timer?
     @State private var countdownTimer: Timer?
 
     private var total: Int { state.sessionLength * 60 }
-    private var progress: Double { Double(elapsed) / Double(total) }
+    private var progress: Double { Double(sessionManager.elapsedSeconds) / Double(total) }
 
     var body: some View {
         ZStack {
-            CameraPreviewView()
-                .ignoresSafeArea()
+            CameraPreviewView(onFrame: { [sessionManager] buffer in
+                sessionManager.processFrame(buffer)
+            })
+            .ignoresSafeArea()
 
             // Vignette overlay
             LinearGradient(
@@ -53,11 +53,11 @@ struct RecordingView: View {
                 CountdownOverlay(value: countdownValue)
             case .recording:
                 RecordingHUD(
-                    elapsed: elapsed,
+                    elapsed: sessionManager.elapsedSeconds,
                     total: total,
                     progress: progress,
-                    livePunches: livePunches,
-                    onStop: { stopRecording() },
+                    livePunches: sessionManager.livePunches,
+                    onStop: { sessionManager.requestStop() },
                     onCancel: onCancel
                 )
             case .done:
@@ -67,6 +67,20 @@ struct RecordingView: View {
         .foregroundColor(.white)
         .preferredColorScheme(.dark)
         .onDisappear { cleanup() }
+        // Auto-navigate when session manager finalizes (timer expired or confirmed stop)
+        .onChange(of: sessionManager.isRecording) { recording in
+            if !recording && phase == .recording {
+                phase = .done
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { onFinish() }
+            }
+        }
+        // Stop confirmation dialog — timer keeps running in background while open
+        .alert("Stop Session?", isPresented: $sessionManager.showStopConfirmation) {
+            Button("Stop", role: .destructive) { sessionManager.confirmStop() }
+            Button("Continue", role: .cancel) { sessionManager.cancelStop() }
+        } message: {
+            Text("Your current progress will be saved and taken to the results page.")
+        }
     }
 
     // MARK: - Timer Control
@@ -86,51 +100,36 @@ struct RecordingView: View {
     }
 
     private func startRecording() {
-        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            elapsed += 1
-            if elapsed >= total {
-                stopRecording()
-            }
-        }
-        detectionTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
-            addSimulatedDetection()
-        }
-    }
-
-    private func addSimulatedDetection() {
-        guard let moveId = state.selectedMoveIds.randomElement(),
-              let move = findMove(moveId) else { return }
-        let punch = LivePunch(move: move, confidence: Double.random(in: 0.6...1.0), timestamp: Date())
-        withAnimation(.easeOut(duration: 0.3)) {
-            livePunches = [punch] + Array(livePunches.prefix(1))
-        }
-    }
-
-    private func stopRecording() {
-        cleanup()
-        phase = .done
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { onFinish() }
+        sessionManager.startSession()
     }
 
     private func cleanup() {
-        countdownTimer?.invalidate(); countdownTimer = nil
-        elapsedTimer?.invalidate();   elapsedTimer = nil
-        detectionTimer?.invalidate(); detectionTimer = nil
+        countdownTimer?.invalidate()
+        countdownTimer = nil
     }
 }
 
 // MARK: - Camera Preview
 
 struct CameraPreviewView: UIViewRepresentable {
+    var onFrame: ((CVPixelBuffer) -> Void)?
+
     func makeUIView(context: Context) -> CameraView {
-        CameraView()
+        let view = CameraView()
+        view.onFrame = onFrame
+        return view
     }
-    func updateUIView(_ uiView: CameraView, context: Context) {}
+    func updateUIView(_ uiView: CameraView, context: Context) {
+        uiView.onFrame = onFrame
+    }
 }
 
-final class CameraView: UIView {
+final class CameraView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate {
+    var onFrame: ((CVPixelBuffer) -> Void)?
+
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private let frameQueue = DispatchQueue(label: "shadowbox.camera.frames", qos: .userInteractive)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -157,6 +156,15 @@ final class CameraView: UIView {
               let input = try? AVCaptureDeviceInput(device: device) else { return }
         session.addInput(input)
 
+        // Video output for ML inference and clip recording
+        let videoOutput = AVCaptureVideoDataOutput()
+        videoOutput.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+        ]
+        videoOutput.setSampleBufferDelegate(self, queue: frameQueue)
+        videoOutput.alwaysDiscardsLateVideoFrames = true
+        if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
+
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
         layer.frame = bounds
@@ -166,6 +174,13 @@ final class CameraView: UIView {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.session.startRunning()
         }
+    }
+
+    func captureOutput(_ output: AVCaptureOutput,
+                       didOutput sampleBuffer: CMSampleBuffer,
+                       from connection: AVCaptureConnection) {
+        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        onFrame?(pixelBuffer)
     }
 
     deinit {

@@ -32,8 +32,39 @@ struct SessionEvent: Identifiable {
     let confidence: Double
     let detectedAs: String?
     let note: String
+    let clipURL: URL?
 
-    enum EventStatus { case wrong, unclear }
+    enum EventStatus { case wrong, unclear, correct }
+
+    init(id: String, time: Int, move: Move, status: EventStatus,
+         confidence: Double, detectedAs: String?, note: String, clipURL: URL? = nil) {
+        self.id = id; self.time = time; self.move = move; self.status = status
+        self.confidence = confidence; self.detectedAs = detectedAs
+        self.note = note; self.clipURL = clipURL
+    }
+}
+
+// MARK: - Session Event Extensions
+
+extension SessionEvent {
+    var confidencePercentage: Double { confidence * 100 }
+    var hasClip: Bool { clipURL != nil }
+
+    var movementState: MovementState {
+        if let label = detectedAs {
+            if label == "body not detected" { return .noScan }
+            if label == "no movement"       { return .noMovement }
+        }
+        switch status {
+        case .correct:
+            return .excellent
+        case .unclear:
+            if confidence == 0 { return .noScan }
+            return confidence * 100 >= 50 ? .fair : .poor
+        case .wrong:
+            return confidence * 100 >= 50 ? .fair : .poor
+        }
+    }
 }
 
 // MARK: - Live Punch (for recording HUD)
@@ -51,6 +82,20 @@ struct SessionState {
     var selectedComboId: String? = nil
     var selectedMoveIds: [String] = []
     var sessionLength: Int = 2
+}
+
+// MARK: - Session State Extensions (computed stats over SessionStore events)
+
+extension SessionState {
+    var totalMovements: Int { SessionStore.shared.currentEvents.count }
+    var accurateMovements: Int { SessionStore.shared.currentEvents.filter { $0.status == .correct }.count }
+    var movementErrors: Int { SessionStore.shared.currentEvents.filter { $0.status != .correct }.count }
+
+    var averageConfidence: Double {
+        let events = SessionStore.shared.currentEvents
+        guard !events.isEmpty else { return 0 }
+        return events.map { $0.confidence }.reduce(0, +) / Double(events.count)
+    }
 }
 
 // MARK: - Static Data

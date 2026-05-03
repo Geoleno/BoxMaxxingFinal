@@ -7,6 +7,7 @@ struct ResultsView: View {
 
     @State private var activeEvent: SessionEvent? = nil
     @State private var density: String = "compact"
+    @State private var exportFeedback: String? = nil
 
     private var total: Int { state.sessionLength * 60 }
     private var wrongCount: Int  { events.filter { $0.status == .wrong }.count }
@@ -103,7 +104,7 @@ struct ResultsView: View {
 
             Spacer()
 
-            Button(action: {}) {
+            Button(action: exportResults) {
                 Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 17, weight: .regular))
                     .foregroundColor(Color(UIColor.systemRed))
@@ -113,6 +114,15 @@ struct ResultsView: View {
         .padding(.horizontal, 12)
         .frame(minHeight: 44)
         .padding(.top, 54)
+    }
+
+    private func exportResults() {
+        // ResultExporter requires a UIScrollView reference.
+        // Full scrollable export is triggered via UIHostingController snapshot.
+        // TODO: Pass UIScrollView reference from the SwiftUI ScrollView wrapper
+        // For now, show a placeholder overlay
+        exportFeedback = "Export coming soon — requires UIScrollView bridge"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { exportFeedback = nil }
     }
 }
 
@@ -175,9 +185,20 @@ private struct TimelineView: View {
     }
 
     private func eventRow(_ event: SessionEvent) -> some View {
-        let accent: Color = event.status == .wrong
-            ? Color(UIColor.systemRed)
-            : Color(UIColor.systemOrange)
+        let accent: Color
+        let statusLabel: String
+        switch event.status {
+        case .correct:
+            accent = Color(UIColor.systemGreen)
+            statusLabel = "Excellent"
+        case .wrong:
+            accent = Color(UIColor.systemRed)
+            statusLabel = "Wrong move"
+        case .unclear:
+            accent = Color(UIColor.systemOrange)
+            statusLabel = "Needs review"
+        }
+
         return HStack(spacing: 7) {
             Circle()
                 .stroke(accent, lineWidth: 3)
@@ -195,7 +216,7 @@ private struct TimelineView: View {
                             .tracking(-0.32)
                             .foregroundColor(Color(UIColor.label))
                         HStack(spacing: 0) {
-                            Text(event.status == .wrong ? "Wrong move" : "Needs review")
+                            Text(statusLabel)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(accent)
                             Text(" · \(Int(event.confidence * 100))% confidence")
@@ -275,7 +296,19 @@ struct DetailSheetView: View {
     @State private var clipPlaying = false
 
     private var accent: Color {
-        event.status == .wrong ? Color(UIColor.systemRed) : Color(UIColor.systemOrange)
+        switch event.status {
+        case .correct: return Color(UIColor.systemGreen)
+        case .wrong:   return Color(UIColor.systemRed)
+        case .unclear: return Color(UIColor.systemOrange)
+        }
+    }
+
+    private var statusLabel: String {
+        switch event.status {
+        case .correct: return "Excellent"
+        case .wrong:   return "Wrong move"
+        case .unclear: return "Needs review"
+        }
     }
 
     var body: some View {
@@ -302,7 +335,7 @@ struct DetailSheetView: View {
                 // Status pill
                 HStack(spacing: 6) {
                     Circle().fill(accent).frame(width: 6, height: 6)
-                    Text(event.status == .wrong ? "Wrong move" : "Needs review")
+                    Text(statusLabel)
                         .font(.system(size: 13, weight: .semibold))
                         .tracking(-0.08)
                 }
@@ -339,14 +372,32 @@ struct DetailSheetView: View {
                 .padding(.top, 16)
                 .padding(.bottom, 22)
 
-                // Your clip
-                SectionLabel("Your clip")
-                VideoPanel(label: "Recorded · 0:03", playing: $clipPlaying, annotated: false)
-                    .padding(.bottom, 22)
+                if event.status == .correct {
+                    // GREEN — no clip (was discarded); show encouragement only
+                    Text("No clip — movement was rated Excellent ✅")
+                        .font(.system(size: 15))
+                        .foregroundColor(Color(UIColor.secondaryLabel))
+                        .italic()
+                        .padding(.bottom, 22)
+                } else {
+                    // YELLOW / RED / NO SCAN / NO MOVEMENT — show user clip
+                    SectionLabel("Your clip")
+                    if event.clipURL != nil {
+                        // TODO: Replace VideoPanel placeholder with AVPlayer(url: event.clipURL!)
+                        VideoPanel(label: "Recorded · 0:03", playing: $clipPlaying, annotated: false)
+                            .padding(.bottom, 22)
+                    } else {
+                        Text("Clip not available")
+                            .font(.system(size: 15))
+                            .foregroundColor(Color(UIColor.secondaryLabel))
+                            .italic()
+                            .padding(.bottom, 22)
+                    }
+                }
 
-                // Suggestion
+                // Suggestion — from PerformanceFeedback, stored in event.note
                 SectionLabel("Suggestion")
-                Text("\(event.note). Keep your elbow tucked and rotate from the hip — the punch should travel along a straight line back to your guard.")
+                Text(event.note)
                     .font(.system(size: 15))
                     .foregroundColor(Color(UIColor.label))
                     .tracking(-0.24)
@@ -357,7 +408,8 @@ struct DetailSheetView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .padding(.bottom, 22)
 
-                // Correct form
+                // Correct form reference video — PLACEHOLDER
+                // TODO: Replace with AVPlayer using correct movement video for event.move.id
                 SectionLabel("Correct form")
                 VideoPanel(label: "Reference · loop", playing: .constant(true), annotated: true)
             }
