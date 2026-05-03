@@ -1,0 +1,481 @@
+import SwiftUI
+import AVFoundation
+
+// MARK: - Recording Phase
+
+enum RecordingPhase: Equatable {
+    case hint, countdown, recording, done
+}
+
+// MARK: - Recording View
+
+struct RecordingView: View {
+    let state: SessionState
+    let onFinish: () -> Void
+    let onCancel: () -> Void
+
+    @State private var phase: RecordingPhase = .hint
+    @State private var countdownValue: Int = 3
+    @State private var elapsed: Int = 0
+    @State private var livePunches: [LivePunch] = []
+    @State private var elapsedTimer: Timer?
+    @State private var detectionTimer: Timer?
+    @State private var countdownTimer: Timer?
+
+    private var total: Int { state.sessionLength * 60 }
+    private var progress: Double { Double(elapsed) / Double(total) }
+
+    var body: some View {
+        ZStack {
+            CameraPreviewView()
+                .ignoresSafeArea()
+
+            // Vignette overlay
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0.55), location: 0),
+                    .init(color: .black.opacity(0.15), location: 0.3),
+                    .init(color: .black.opacity(0.15), location: 0.7),
+                    .init(color: .black.opacity(0.7),  location: 1.0),
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
+            switch phase {
+            case .hint:
+                SetupHintOverlay(
+                    onContinue: { phase = .countdown; startCountdown() },
+                    onCancel: onCancel
+                )
+            case .countdown:
+                CountdownOverlay(value: countdownValue)
+            case .recording:
+                RecordingHUD(
+                    elapsed: elapsed,
+                    total: total,
+                    progress: progress,
+                    livePunches: livePunches,
+                    onStop: { stopRecording() },
+                    onCancel: onCancel
+                )
+            case .done:
+                ReviewingOverlay()
+            }
+        }
+        .foregroundColor(.white)
+        .preferredColorScheme(.dark)
+        .onDisappear { cleanup() }
+    }
+
+    // MARK: - Timer Control
+
+    private func startCountdown() {
+        countdownValue = 3
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { t in
+            if countdownValue > 0 {
+                countdownValue -= 1
+            } else {
+                t.invalidate()
+                countdownTimer = nil
+                phase = .recording
+                startRecording()
+            }
+        }
+    }
+
+    private func startRecording() {
+        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            elapsed += 1
+            if elapsed >= total {
+                stopRecording()
+            }
+        }
+        detectionTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in
+            addSimulatedDetection()
+        }
+    }
+
+    private func addSimulatedDetection() {
+        guard let moveId = state.selectedMoveIds.randomElement(),
+              let move = findMove(moveId) else { return }
+        let punch = LivePunch(move: move, confidence: Double.random(in: 0.6...1.0), timestamp: Date())
+        withAnimation(.easeOut(duration: 0.3)) {
+            livePunches = [punch] + Array(livePunches.prefix(1))
+        }
+    }
+
+    private func stopRecording() {
+        cleanup()
+        phase = .done
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { onFinish() }
+    }
+
+    private func cleanup() {
+        countdownTimer?.invalidate(); countdownTimer = nil
+        elapsedTimer?.invalidate();   elapsedTimer = nil
+        detectionTimer?.invalidate(); detectionTimer = nil
+    }
+}
+
+// MARK: - Camera Preview
+
+struct CameraPreviewView: UIViewRepresentable {
+    func makeUIView(context: Context) -> CameraView {
+        CameraView()
+    }
+    func updateUIView(_ uiView: CameraView, context: Context) {}
+}
+
+final class CameraView: UIView {
+    private let session = AVCaptureSession()
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor(red: 0.1, green: 0.09, blue: 0.085, alpha: 1)
+        setupCamera()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        previewLayer?.frame = bounds
+    }
+
+    private func setupCamera() {
+        AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+            guard granted else { return }
+            DispatchQueue.main.async { self?.startSession() }
+        }
+    }
+
+    private func startSession() {
+        session.sessionPreset = .high
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front),
+              let input = try? AVCaptureDeviceInput(device: device) else { return }
+        session.addInput(input)
+
+        let layer = AVCaptureVideoPreviewLayer(session: session)
+        layer.videoGravity = .resizeAspectFill
+        layer.frame = bounds
+        self.layer.insertSublayer(layer, at: 0)
+        previewLayer = layer
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.session.startRunning()
+        }
+    }
+
+    deinit {
+        if session.isRunning { session.stopRunning() }
+    }
+}
+
+// MARK: - Setup Hint Overlay
+
+private struct SetupHintOverlay: View {
+    let onContinue: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.5)
+                .ignoresSafeArea()
+                .blur(radius: 8)
+
+            VStack(alignment: .leading, spacing: 0) {
+                // Grabber
+                HStack { Spacer()
+                    Capsule().fill(Color.white.opacity(0.3)).frame(width: 36, height: 5)
+                    Spacer()
+                }
+                .padding(.bottom, 14)
+
+                Text("Set up your camera")
+                    .font(.system(size: 22, weight: .bold))
+                    .tracking(0.35)
+                    .padding(.bottom, 4)
+
+                Text("For best detection, follow these tips before starting.")
+                    .font(.system(size: 15))
+                    .foregroundColor(Color.white.opacity(0.65))
+                    .tracking(-0.24)
+                    .lineSpacing(4)
+                    .padding(.bottom, 18)
+
+                HintRow(icon: "arrow.left.and.right", title: "Stand 2–3 m away",
+                        sub: "Your full body should fit in the frame.", last: false)
+                HintRow(icon: "rotate.3d", title: "Angle ~30° to the side",
+                        sub: "Face the camera at a slight angle so both arms are visible.", last: false)
+                HintRow(icon: "sun.max", title: "Even, front-facing light",
+                        sub: "Avoid backlight — shadows reduce detection accuracy.", last: true)
+
+                HStack(spacing: 10) {
+                    Button(action: onCancel) {
+                        Text("Cancel")
+                            .font(.system(size: 17, weight: .medium))
+                            .tracking(-0.4)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.15)))
+                    }
+                    Button(action: onContinue) {
+                        Text("I'm Ready")
+                            .font(.system(size: 17, weight: .semibold))
+                            .tracking(-0.4)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.systemRed)))
+                    }
+                }
+                .padding(.top, 18)
+            }
+            .foregroundColor(.white)
+            .padding(20)
+            .padding(.bottom, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color(UIColor.systemBackground).opacity(0.15))
+                    .background(
+                        .ultraThinMaterial,
+                        in: RoundedRectangle(cornerRadius: 18)
+                    )
+            )
+            .padding(.horizontal, 12)
+            .padding(.bottom, 20)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct HintRow: View {
+    let icon: String
+    let title: String
+    let sub: String
+    let last: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: icon)
+                    .font(.system(size: 16))
+                    .foregroundColor(Color(UIColor.systemRed))
+                    .frame(width: 32, height: 32)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(UIColor.systemRed).opacity(0.2)))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .tracking(-0.32)
+                    Text(sub)
+                        .font(.system(size: 14))
+                        .foregroundColor(Color.white.opacity(0.6))
+                        .tracking(-0.15)
+                        .lineSpacing(3)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.bottom, last ? 0 : 14)
+
+            if !last {
+                Divider().background(Color.white.opacity(0.15)).padding(.bottom, 14)
+            }
+        }
+    }
+}
+
+// MARK: - Countdown Overlay
+
+private struct CountdownOverlay: View {
+    let value: Int
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Get ready")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundColor(.white.opacity(0.7))
+                .tracking(-0.4)
+
+            Text(value == 0 ? "Go" : "\(value)")
+                .font(.system(size: 160, weight: .bold, design: .default))
+                .monospacedDigit()
+                .foregroundColor(.white)
+                .tracking(-8)
+                .frame(minWidth: 200)
+                .contentTransition(.numericText())
+                .animation(.easeInOut(duration: 0.2), value: value)
+        }
+    }
+}
+
+// MARK: - Recording HUD
+
+private struct RecordingHUD: View {
+    let elapsed: Int
+    let total: Int
+    let progress: Double
+    let livePunches: [LivePunch]
+    let onStop: () -> Void
+    let onCancel: () -> Void
+
+    @State private var recPulse = false
+
+    var body: some View {
+        VStack {
+            // Top bar
+            HStack {
+                Button(action: onCancel) {
+                    ZStack {
+                        Circle()
+                            .fill(.black.opacity(0.4))
+                            .frame(width: 32, height: 32)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                }
+                .background(.ultraThinMaterial.opacity(0), in: Circle())
+
+                Spacer()
+
+                // REC indicator
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(Color(UIColor.systemRed))
+                        .frame(width: 8, height: 8)
+                        .opacity(recPulse ? 0.5 : 1.0)
+                        .scaleEffect(recPulse ? 0.85 : 1.0)
+                        .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: recPulse)
+                    Text(formatTime(elapsed))
+                        .font(.system(size: 15, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .tracking(-0.24)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.ultraThinMaterial, in: Capsule())
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 56)
+
+            Spacer()
+
+            // Live detection chips
+            VStack(spacing: 6) {
+                ForEach(Array(livePunches.prefix(2).enumerated()), id: \.element.id) { idx, punch in
+                    LivePunchChip(punch: punch, faded: idx > 0)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .trailing).combined(with: .opacity),
+                            removal: .opacity
+                        ))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .animation(.easeOut(duration: 0.3), value: livePunches.map(\.id))
+            .padding(.bottom, 16)
+
+            // Progress bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.18))
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color(UIColor.systemRed))
+                        .frame(width: geo.size.width * CGFloat(progress))
+                        .animation(.linear(duration: 1.0), value: progress)
+                }
+            }
+            .frame(height: 3)
+            .padding(.horizontal, 16)
+
+            // Stop button
+            Button(action: onStop) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.9), lineWidth: 3)
+                        .frame(width: 64, height: 64)
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color(UIColor.systemRed))
+                        .frame(width: 26, height: 26)
+                }
+            }
+            .padding(.top, 16)
+            .padding(.bottom, 50)
+        }
+        .onAppear { recPulse = true }
+    }
+}
+
+private struct LivePunchChip: View {
+    let punch: LivePunch
+    let faded: Bool
+
+    private var accentColor: Color {
+        if punch.confidence > 0.85 { return Color(UIColor.systemGreen) }
+        if punch.confidence > 0.7  { return Color(UIColor.systemOrange) }
+        return Color(UIColor.systemBlue)
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            MoveGlyphView(kind: punch.move.kind, side: punch.move.side, color: .white, size: 20)
+            Text(punch.move.name)
+                .font(.system(size: 15, weight: .medium))
+                .tracking(-0.24)
+                .foregroundColor(.white)
+            Spacer()
+            Text("\(Int(punch.confidence * 100))%")
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                .monospacedDigit()
+                .tracking(-0.08)
+                .foregroundColor(accentColor)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .opacity(faded ? 0.6 : 1.0)
+    }
+}
+
+// MARK: - Reviewing Overlay
+
+private struct ReviewingOverlay: View {
+    @State private var spin = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.85)
+                .ignoresSafeArea()
+                .blur(radius: 20)
+
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.2), lineWidth: 3)
+                        .frame(width: 32, height: 32)
+                    Circle()
+                        .trim(from: 0, to: 0.25)
+                        .stroke(Color.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .frame(width: 32, height: 32)
+                        .rotationEffect(.degrees(spin ? 360 : 0))
+                        .animation(.linear(duration: 0.9).repeatForever(autoreverses: false), value: spin)
+                }
+
+                Text("Reviewing your tape…")
+                    .font(.system(size: 22, weight: .semibold))
+                    .tracking(-0.4)
+
+                Text("Analyzing form and detection")
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.55))
+                    .tracking(-0.24)
+            }
+        }
+        .onAppear { spin = true }
+    }
+}

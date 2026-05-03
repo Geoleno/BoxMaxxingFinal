@@ -1,21 +1,48 @@
-//
-//  ContentView.swift
-//  BoxMaxxingFinal
-//
-//  Created by Michael V Ginting on 03/05/26.
-//
-
 import SwiftUI
 
+enum AppRoute {
+    case menu, record, results
+}
+
 struct ContentView: View {
+    @State private var route: AppRoute = .menu
+    @State private var sessionState = SessionState()
+    @State private var sessionEvents: [SessionEvent] = []
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        ZStack {
+            switch route {
+            case .menu:
+                MenuView(state: $sessionState) {
+                    withAnimation(.easeInOut(duration: 0.25)) { route = .record }
+                }
+                .transition(.opacity)
+
+            case .record:
+                RecordingView(
+                    state: sessionState,
+                    onFinish: {
+                        sessionEvents = generateEvents(state: sessionState)
+                        withAnimation(.easeInOut(duration: 0.25)) { route = .results }
+                    },
+                    onCancel: {
+                        withAnimation(.easeInOut(duration: 0.25)) { route = .menu }
+                    }
+                )
+                .transition(.opacity)
+
+            case .results:
+                ResultsView(
+                    state: sessionState,
+                    events: sessionEvents,
+                    onBack: {
+                        withAnimation(.easeInOut(duration: 0.25)) { route = .menu }
+                    }
+                )
+                .transition(.opacity)
+            }
         }
-        .padding()
+        .animation(.easeInOut(duration: 0.25), value: route)
     }
 }
 
