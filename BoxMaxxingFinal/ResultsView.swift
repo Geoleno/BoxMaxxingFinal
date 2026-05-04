@@ -113,7 +113,7 @@ struct ResultsView: View {
         }
         .padding(.horizontal, 12)
         .frame(minHeight: 44)
-        .padding(.top, 54)
+        
     }
 
     private func exportResults() {
@@ -325,11 +325,14 @@ struct DetailSheetView: View {
                     Button("Done") { dismiss() }
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(Color(UIColor.label))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 5)
-                        .background(Capsule().fill(Color(UIColor.systemFill)))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+//                        .background(Capsule().fill(Color(UIColor.systemFill)))
+//                        .buttonStyle(.glass)
+                        .buttonStyle(.glassProminent)
+                        .tint(.gray.opacity(0.3))
                 }
-                .padding(.top, 4)
+                .padding(.top, 24)
                 .padding(.bottom, 12)
 
                 // Status pill
@@ -539,4 +542,8 @@ private struct Triangle: Shape {
             p.closeSubpath()
         }
     }
+}
+
+#Preview {
+    ContentView()
 }

@@ -11,7 +11,9 @@
 
 ### 1. Current Project State (BoxMaxxingFinal)
 
-The Xcode project **BoxMaxxingFinal** already exists with the following 7 files built and in place. **Do not recreate, rewrite, or restructure any of them** unless explicitly told to do so.
+The Xcode project **BoxMaxxingFinal** already exists with the following files built and in place. **Do not recreate, rewrite, or restructure any of them** unless explicitly told to do so.
+
+#### Frontend (Original — Do Not Touch)
 
 | File | Status | What It Does |
 |---|---|---|
@@ -22,6 +24,21 @@ The Xcode project **BoxMaxxingFinal** already exists with the following 7 files 
 | `RecordingView.swift` | ✅ Done | Live session screen — `AVCaptureSession` camera preview, setup hint sheet, 3-2-1 countdown, recording HUD (REC pill, live detection chips, progress bar, stop button), "Reviewing…" spinner |
 | `ResultsView.swift` | ✅ Done | Results screen — session stats (Wrong/Unclear/Avg Confidence), vertical timeline with spine and event dots, tappable event cards, bottom sheet with clip panels, confidence bars, form suggestions, correct form visuals |
 | `project.pbxproj` | ✅ Done | `NSCameraUsageDescription` permission key added |
+
+#### Backend (Implemented May 3, 2026)
+
+| File | Status | What It Does |
+|---|---|---|
+| `Services/SessionManager.swift` | ✅ Done | Orchestrates full 2-min session — 1s session timer, 3s move window loop, stop confirmation dialog, auto-finalizes on timeout |
+| `Services/VisionProcessor.swift` | ✅ Done | Vision framework body pose detection wrapper; dispatches on background queue |
+| `Services/MLInferenceEngine.swift` | ✅ Done (placeholder) | CoreML inference stub; returns `no_movement_detected` until model is integrated |
+| `Services/AudioCuePlayer.swift` | ✅ Done (placeholder) | AVFoundation audio cue player keyed by `Move.id`; asset files TBD |
+| `Services/MovementAggregator.swift` | ✅ Done | Majority-vote label + avg confidence of winning frames over a 3s window |
+| `Services/ClipRecorder.swift` | ✅ Done ⚠️ | AVAssetWriter clip recorder — keep/discard by rating. **Has known bugs (see Section 15)** |
+| `Services/SessionStore.swift` | ✅ Done | In-memory storage of session events, start date, and duration |
+| `Utilities/ResultExporter.swift` | ✅ Done ⚠️ | Full scrollable JPG export via `UIGraphicsImageRenderer`. **Not yet wired into ResultsView** |
+| `Utilities/PerformanceFeedback.swift` | ✅ Done | Contextual feedback strings per move and rating |
+| `Utilities/ColorExtensions.swift` | ✅ Done | `MovementState` enum, `performanceColor(for:)` and `performanceLabel(for:)` helpers |
 
 ---
 
@@ -196,7 +213,7 @@ The `allCombos` array in `Models.swift` is already defined and must not be modif
 ---
 
 **Project Name:** BoxMaxxingFinal
-**Project Status:** Backend Implementation Phase
+**Project Status:** Bug Fix Phase — backend complete, known bugs outstanding
 **Date Created:** May 3, 2026
 **Expert Role:** 50-Year Veteran iOS Developer & AI Engineer
 **Model Type:** CoreML Action Classifier (Apple Create ML, 60-frame window @ 30fps)
@@ -1320,46 +1337,49 @@ struct MovementDetailView: View {
 ## Part 11: Implementation Checklist
 
 ### Phase 1: Core Architecture
-- [ ] Create `SessionManager` with timer logic
-- [ ] Create `VisionProcessor` for body pose detection
-- [ ] Create `MovementLogger` for tracking entries
-- [ ] Set up `SessionStore` for in-memory storage
+- [x] Create `SessionManager` with timer logic
+- [x] Create `VisionProcessor` for body pose detection
+- [x] Create `SessionStore` for in-memory storage
 
 ### Phase 2: ML & Audio Integration Points
-- [ ] Create `MLInferenceEngine` with placeholder structure
-- [ ] Create `AudioCuePlayer` with audio file mappings
-- [ ] Test placeholder inference/audio with mock data
+- [x] Create `MLInferenceEngine` with placeholder structure
+- [x] Create `AudioCuePlayer` with audio file mappings
 
 ### Phase 3: Recording Session Flow
-- [ ] Implement camera calibration phase
-- [ ] Implement move sequencing loop
-- [ ] Implement 3-second move windows
-- [ ] Wire up ML inference to camera frames
-- [ ] Populate movement log in real-time
+- [x] Implement camera calibration phase (SetupHintOverlay — UX reminder only, always tappable)
+- [x] Implement move sequencing loop (combo loops via modulo on `currentMoveIndex`)
+- [x] Implement 3-second move windows
+- [x] Wire up ML inference to camera frames (`processFrame` → VisionProcessor → MLInferenceEngine)
+- [x] Populate live punch chips in real-time (`livePunches` published state)
+- [x] Implement stop confirmation dialog (timer continues while open; auto-finalizes on timeout)
 
 ### Phase 4: Result Screen & Export
-- [ ] Display session summary metrics
-- [ ] Display movement timestamp breakdown
-- [ ] Implement movement detail modal
-- [ ] Implement JPG export functionality
+- [x] Display session summary metrics (Wrong / Unclear / Avg Confidence stat cards)
+- [x] Display movement timestamp breakdown (vertical timeline, all events tappable)
+- [x] Implement movement detail modal (DetailSheetView — shows clip, suggestion, reference placeholder)
+- [ ] **Wire JPG export** — `ResultsView.exportResults()` currently shows placeholder; must bridge UIScrollView to `ResultExporter`
+- [ ] **Wire AVPlayer for user clips** — `DetailSheetView` uses `VideoPanel` placeholder; replace with `AVPlayer(url: event.clipURL!)`
 
-### Phase 4.5: Performance Color Rating System (NEW)
-- [ ] Create `Color.performanceColor(for:)` extension
-- [ ] Create `Color.performanceLabel(for:)` extension
-- [ ] Build `ConfidenceDisplay` SwiftUI component
-- [ ] Build `AverageConfidenceCard` SwiftUI component
-- [ ] Build `MovementLogEntry` with color rating display
-- [ ] Create `PerformanceFeedback` helper for contextual messages
-- [ ] Update data models with `performanceRating` computed property
-- [ ] Apply color coding to all confidence displays (session + individual movements)
-- [ ] Test color contrast and accessibility (WCAG AA)
+### Phase 4.5: Performance Color Rating System
+- [x] Create `Color.performanceColor(for:)` extension
+- [x] Create `Color.performanceLabel(for:)` extension
+- [x] Create `PerformanceFeedback` helper for contextual messages
+- [x] `MovementState` enum with `.color` and `.label` on `SessionEvent`
+- [x] Color coding applied in timeline (dot accent color per event status)
+- [x] Color coding applied in detail modal (accent follows status)
+
+### Phase 4.6: Bug Fixes Required (found in code review May 3, 2026)
+- [ ] **`ClipRecorder` — `tempClipURL` race:** Call `beginMoveWindow()` inside `stopAndEvaluate` completion, not before it
+- [ ] **`ClipRecorder` — thread safety:** Serialize `appendFrame` / `startClip` / `stopAndEvaluate` on a private serial queue
+- [ ] **`ClipRecorder` — hardcoded resolution:** Read dimensions dynamically from pixel buffer instead of hardcoding 1080×1920
+- [ ] **`allCombos` — missing 2 combos:** Add Combo 3 (LJ·RJ·LH·RH), Combo 4 (LJ·LH·RJ), Combo 5 (LJ·RJ·LU·RU), Combo 6 (RJ·RH·LU) — currently only 4 of 6 required combos exist
 
 ### Phase 5: Integration & Testing
-- [ ] Integrate actual CoreML model (replace placeholder)
-- [ ] Integrate audio asset files (replace placeholder)
-- [ ] Integrate reference movement videos (replace placeholder)
+- [ ] Integrate actual CoreML model (replace placeholder in `MLInferenceEngine`)
+- [ ] Integrate audio asset files (add .mp3 files and remove TODO comments in `AudioCuePlayer`)
+- [ ] Integrate reference movement videos (add .mp4 files to `ResultsView` detail sheet)
 - [ ] End-to-end testing across all 3 pages
-- [ ] Test color rating system with various confidence ranges
+- [ ] Test clip keep/discard logic across all rating tiers
 
 ---
 
