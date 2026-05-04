@@ -68,8 +68,8 @@ struct RecordingView: View {
         .preferredColorScheme(.dark)
         .onDisappear { cleanup() }
         // Auto-navigate when session manager finalizes (timer expired or confirmed stop)
-        .onChange(of: sessionManager.isRecording) { recording in
-            if !recording && phase == .recording {
+        .onChange(of: sessionManager.isRecording) { oldValue, newValue in
+            if !newValue && phase == .recording {
                 phase = .done
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { onFinish() }
             }

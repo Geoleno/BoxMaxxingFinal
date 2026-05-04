@@ -5,6 +5,7 @@ struct MenuView: View {
     let onStart: () -> Void
 
     var body: some View {
+    
         VStack(spacing: 0) {
             titleSection
             comboSection
@@ -24,24 +25,28 @@ struct MenuView: View {
                 .foregroundColor(Color(UIColor.systemRed))
                 .tracking(-0.08)
             Text("New Session")
-                .font(.system(size: 28, weight: .bold))
+                .font(.system(size: 30, weight: .bold))
                 .tracking(0.2)
                 .foregroundColor(Color(UIColor.label))
+            Text("Pick your combo, then train.")
+                .font(.system(size: 13))
+                .foregroundColor(Color(UIColor.secondaryLabel))
+                .tracking(-0.08)
             HStack(spacing: 5) {
                 Image(systemName: "clock")
                     .font(.system(size: 12))
-                    .foregroundColor(Color(UIColor.secondaryLabel))
+                    .foregroundColor(Color(UIColor.label))
                 Text("Session duration is 2 minutes")
                     .font(.system(size: 13))
-                    .foregroundColor(Color(UIColor.secondaryLabel))
+                    .foregroundColor(Color(UIColor.label))
                     .tracking(-0.08)
             }
-            .padding(.top, 3)
+            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
-        .padding(.top, 50)
-        .padding(.bottom, 4)
+        .padding(.top, 60)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Combo List
@@ -78,6 +83,7 @@ struct MenuView: View {
             .background(Color(UIColor.secondarySystemBackground))
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .padding(.horizontal, 20)
+
         }
         .padding(.top, 6)
     }
@@ -102,17 +108,16 @@ struct MenuView: View {
             .padding(.horizontal, 20)
 
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 3),
-                spacing: 7
+                columns: Array(repeating: GridItem(.flexible(), spacing: 7), count: 2),
+                spacing: 10
             ) {
                 ForEach(allMoves) { move in
                     MoveCard(move: move, selectedMoveIds: state.selectedMoveIds)
-                }
+                }.frame(height: 86)
             }
             .padding(.horizontal, 20)
         }
-        .padding(.top, 6)
-        .frame(maxHeight: .infinity)
+        .padding(.top, 10)
     }
 
     // MARK: - Start CTA
@@ -121,11 +126,11 @@ struct MenuView: View {
         let enabled = state.selectedComboId != nil
         return Button(action: onStart) {
             Text("Start Session")
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .tracking(-0.4)
                 .foregroundColor(enabled ? .white : Color(UIColor.tertiaryLabel))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
+                .padding(.vertical, 14)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
                         .fill(enabled
@@ -135,8 +140,8 @@ struct MenuView: View {
         }
         .disabled(!enabled)
         .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
+        .padding(.top, 26)
+        .padding(.bottom, 25)
     }
 }
 
@@ -151,7 +156,7 @@ private struct ComboRow: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(combo.name)
-                    .font(.system(size: 15, weight: isActive ? .semibold : .regular))
+                    .font(.system(size: 16, weight: isActive ? .semibold : .regular))
                     .foregroundColor(isActive ? Color(UIColor.systemRed) : Color(UIColor.label))
                     .tracking(-0.3)
 
@@ -160,12 +165,12 @@ private struct ComboRow: View {
                     ForEach(Array(combo.moveIds.enumerated()), id: \.offset) { idx, moveId in
                         if idx > 0 {
                             Text("›")
-                                .font(.system(size: 10))
+                                .font(.system(size: 11))
                                 .foregroundColor(Color(UIColor.tertiaryLabel))
                         }
                         HStack(spacing: 3) {
                             Text("\(idx + 1)")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
                                 .foregroundColor(.white)
                                 .frame(width: 16, height: 16)
                                 .background(
@@ -174,7 +179,7 @@ private struct ComboRow: View {
                                 )
                             if let move = findMove(moveId) {
                                 Text(move.short)
-                                    .font(.system(size: 12, weight: isActive ? .medium : .regular, design: .monospaced))
+                                    .font(.system(size: 13, weight: isActive ? .medium : .regular, design: .monospaced))
                                     .foregroundColor(isActive ? Color(UIColor.label) : Color(UIColor.secondaryLabel))
                                     .tracking(0.1)
                             }
@@ -200,7 +205,7 @@ private struct ComboRow: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.vertical, 14)
         .background(isActive ? Color(UIColor.systemRed).opacity(0.07) : Color.clear)
         .overlay(alignment: .top) {
             if showSeparator {
@@ -246,15 +251,16 @@ private struct MoveCard: View {
             }
             Spacer()
             Text(move.name)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .tracking(-0.2)
                 .foregroundColor(inCombo ? Color(UIColor.label) : Color(UIColor.secondaryLabel))
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
+            Spacer()
         }
         .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 7)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 14)
@@ -266,4 +272,7 @@ private struct MoveCard: View {
         )
         .animation(.easeInOut(duration: 0.15), value: inCombo)
     }
+}
+#Preview {
+    ContentView()
 }
