@@ -5,7 +5,7 @@ enum AppRoute {
 }
 
 struct ContentView: View {
-    @State private var route: AppRoute = .menu
+    @State private var route: AppRoute = .results
     @State private var sessionState = SessionState()
     @StateObject private var sessionManager = SessionManager()
 

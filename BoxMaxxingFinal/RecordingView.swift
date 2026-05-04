@@ -420,7 +420,7 @@ private struct RecordingHUD: View {
                 }
             }
             .padding(.top, 16)
-            .padding(.bottom, 50)
+            .padding(.bottom, 20)
         }
         .onAppear { recPulse = true }
     }
