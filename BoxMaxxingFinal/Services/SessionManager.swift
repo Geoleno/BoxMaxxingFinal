@@ -10,6 +10,7 @@ final class SessionManager: ObservableObject {
     // MARK: - Published State (drives RecordingView UI)
 
     @Published var isRecording = false
+    @Published var isAnalyzing = false      // true while PostSessionAnalyzer runs
     @Published var elapsedSeconds = 0
     @Published var livePunches: [LivePunch] = []
     @Published var showStopConfirmation = false
@@ -31,14 +32,12 @@ final class SessionManager: ObservableObject {
     private var currentMoveIndex = 0
     private var globalWindowIndex = 0
     private var currentFramePredictions: [FramePrediction] = []
-    private var collectedEvents: [SessionEvent] = []
 
     // MARK: - Services
 
     private let visionProcessor = VisionProcessor()
     private let mlEngine = MLInferenceEngine()
     private let audioCuePlayer = AudioCuePlayer()
-    private let aggregator = MovementAggregator()
 
     // MARK: - Thread Safety
 
@@ -48,7 +47,6 @@ final class SessionManager: ObservableObject {
 
     func configure(combo: Combo) {
         selectedCombo = combo
-        collectedEvents = []
         currentMoveIndex = 0
         globalWindowIndex = 0
         elapsedSeconds = 0
@@ -62,13 +60,18 @@ final class SessionManager: ObservableObject {
 
         isRecording = true
         sessionStartDate = Date()
-        collectedEvents = []
         currentMoveIndex = 0
         globalWindowIndex = 0
         elapsedSeconds = 0
         livePunches = []
 
         mlEngine.loadModel()
+
+        // Skip live recording when a debug video is injected for testing
+        if SessionRecorder.shared.debugVideoOverride == nil {
+            SessionRecorder.shared.startRecording()
+        }
+
         startSessionTimer()
         beginMoveWindow()
     }
@@ -89,16 +92,37 @@ final class SessionManager: ObservableObject {
 
     func finalizeSession() {
         guard isRecording else { return }
-        isRecording = false
 
         sessionTimer?.invalidate(); sessionTimer = nil
-        windowTimer?.invalidate(); windowTimer = nil
+        windowTimer?.invalidate();  windowTimer = nil
 
-        let start = sessionStartDate ?? Date()
-        let duration = TimeInterval(elapsedSeconds)
-        let events = collectedEvents
+        isRecording = false     // RecordingView: phase switches to .done (ReviewingOverlay)
+        isAnalyzing = true
 
-        SessionStore.shared.save(events: events, startDate: start, duration: duration)
+        Task { @MainActor in
+            do {
+                // Use debug video if set, otherwise use the live-recorded session file
+                let videoURL: URL
+                if let override = SessionRecorder.shared.debugVideoOverride {
+                    videoURL = override
+                } else {
+                    videoURL = try await SessionRecorder.shared.stopRecording()
+                }
+
+                let events = await PostSessionAnalyzer.shared.analyze(videoURL: videoURL)
+
+                SessionStore.shared.save(
+                    events:    events,
+                    startDate: sessionStartDate ?? Date(),
+                    duration:  TimeInterval(elapsedSeconds)
+                )
+            } catch {
+                // Recording failed — navigate to Results with empty timeline rather than hang
+                SessionStore.shared.save(events: [], startDate: Date(), duration: 0)
+            }
+
+            isAnalyzing = false     // RecordingView: calls onFinish() → navigates to Results
+        }
     }
 
     // MARK: - Camera Frame Input (called by CameraPreviewView on every frame)
@@ -106,10 +130,8 @@ final class SessionManager: ObservableObject {
     func processFrame(_ pixelBuffer: CVPixelBuffer) {
         guard isRecording else { return }
 
-        // Feed to clip recorder
-        ClipRecorder.shared.appendFrame(pixelBuffer)
-
-        // Run Vision + ML inference on background queue; dispatch prediction to main
+        // Vision + ML inference drives live punch chips in the HUD only.
+        // Full-session recording is handled by SessionRecorder via AVCaptureMovieFileOutput.
         visionProcessor.detectBodyPose(from: pixelBuffer) { [weak self] observations in
             guard let self else { return }
             let prediction = self.mlEngine.predictMove(from: observations)
@@ -139,9 +161,7 @@ final class SessionManager: ObservableObject {
         guard isRecording, let combo = selectedCombo else { return }
 
         let moveId = combo.moveIds[currentMoveIndex % combo.moveIds.count]
-
         audioCuePlayer.playAudioCue(for: moveId)
-        ClipRecorder.shared.startClip(for: moveId, windowIndex: globalWindowIndex)
         currentFramePredictions = []
 
         windowTimer = Timer.scheduledTimer(withTimeInterval: moveWindowDuration, repeats: false) { [weak self] _ in
@@ -150,75 +170,13 @@ final class SessionManager: ObservableObject {
     }
 
     private func endMoveWindow() {
-        guard isRecording, let combo = selectedCombo else { return }
-
-        let loopedIndex = currentMoveIndex % combo.moveIds.count
-        let moveId = combo.moveIds[loopedIndex]
-        guard let expectedMove = findMove(moveId) else { return }
-
-        let predictions = currentFramePredictions
+        guard isRecording else { return }
+        // Events are built post-session by PostSessionAnalyzer, not here.
+        // This loop only drives audio cues via beginMoveWindow.
         currentFramePredictions = []
-
-        let (predictedLabel, confidence) = aggregator.aggregate(predictions: predictions)
-        let elapsedAtEnd = elapsedSeconds
-        let windowIdx = globalWindowIndex
-
-        ClipRecorder.shared.stopAndEvaluate(
-            confidence: confidence,
-            predictedLabel: predictedLabel,
-            moveId: moveId,
-            windowIndex: windowIdx
-        ) { [weak self] clipURL in
-            guard let self else { return }
-
-            let isAccurate = (predictedLabel == moveId) && (confidence >= 0.85)
-
-            let status: SessionEvent.EventStatus
-            if isAccurate {
-                status = .correct
-            } else if predictedLabel == "no_body_detected" || predictedLabel == "no_movement_detected" {
-                status = .unclear
-            } else {
-                status = .wrong
-            }
-
-            let detectedMoveName: String?
-            switch predictedLabel {
-            case "no_body_detected":    detectedMoveName = "body not detected"
-            case "no_movement_detected": detectedMoveName = "no movement"
-            case moveId:                detectedMoveName = nil
-            default:                    detectedMoveName = findMove(predictedLabel)?.name ?? predictedLabel
-            }
-
-            let note: String
-            switch predictedLabel {
-            case "no_body_detected":    note = PerformanceFeedback.noScanFeedback()
-            case "no_movement_detected": note = PerformanceFeedback.noMovementFeedback()
-            default:                    note = PerformanceFeedback.suggestion(for: moveId)
-            }
-
-            let event = SessionEvent(
-                id: UUID().uuidString,
-                time: elapsedAtEnd,
-                move: expectedMove,
-                status: status,
-                confidence: Double(confidence),
-                detectedAs: detectedMoveName,
-                note: note,
-                clipURL: clipURL
-            )
-
-            DispatchQueue.main.async {
-                self.collectedEvents.append(event)
-            }
-        }
-
         globalWindowIndex += 1
         currentMoveIndex += 1
-
-        if isRecording {
-            beginMoveWindow()
-        }
+        beginMoveWindow()
     }
 
     // MARK: - Live Punch Chip Updates
