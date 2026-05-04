@@ -40,7 +40,7 @@ struct ContentView: View {
                     state: sessionState,
                     events: SessionStore.shared.currentEvents,
                     onBack: {
-                        ClipRecorder.shared.deleteAllClips()
+                        SessionRecorder.shared.deleteSessionFile()
                         SessionStore.shared.clear()
                         withAnimation(.easeInOut(duration: 0.25)) { route = .menu }
                     }
@@ -50,8 +50,8 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: route)
         .onAppear {
-            // Startup cleanup: remove any clips left over from a previous app session
-            ClipRecorder.shared.deleteAllClips()
+            // Startup cleanup: remove any session file left over from a previous app session
+            SessionRecorder.shared.deleteSessionFile()
         }
     }
 }

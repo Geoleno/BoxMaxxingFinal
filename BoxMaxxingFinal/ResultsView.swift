@@ -293,8 +293,6 @@ private struct LegendDot: View {
 struct DetailSheetView: View {
     let event: SessionEvent
     @Environment(\.dismiss) private var dismiss
-    @State private var clipPlaying = false
-
     private var accent: Color {
         switch event.status {
         case .correct: return Color(UIColor.systemGreen)
@@ -384,9 +382,10 @@ struct DetailSheetView: View {
                 } else {
                     // YELLOW / RED / NO SCAN / NO MOVEMENT — show user clip
                     SectionLabel("Your clip")
-                    if event.clipURL != nil {
-                        // TODO: Replace VideoPanel placeholder with AVPlayer(url: event.clipURL!)
-                        VideoPanel(label: "Recorded · 0:03", playing: $clipPlaying, annotated: false)
+                    if let clipURL = event.clipURL {
+                        VideoPlayerView(url: clipURL, startSeconds: event.time)
+                            .aspectRatio(16/10, contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
                             .padding(.bottom, 22)
                     } else {
                         Text("Clip not available")
