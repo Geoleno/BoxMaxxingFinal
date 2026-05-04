@@ -34,13 +34,13 @@ Your job is to implement the **backend logic** that powers the existing views. T
 #### Files to Create:
 
 ```
-Services/SessionManager.swift       — orchestrates the full 2-min session loop
-Services/VisionProcessor.swift      — Vision framework body pose detection
-Services/MLInferenceEngine.swift    — CoreML inference (placeholder)
+Services/SessionManager.swift       — orchestrates the full 2-min session loop + full video recording
+Services/VisionProcessor.swift      — Vision framework body pose detection (used during recording for calibration UI only)
+Services/MLInferenceEngine.swift    — CoreML Action Classifier inference (placeholder)
 Services/AudioCuePlayer.swift       — plays audio cues per move (placeholder assets)
-Services/MovementAggregator.swift   — majority vote label + avg confidence across frames
-Services/ClipRecorder.swift         — auto-records and keeps/discards clips by rating
-Services/SessionStore.swift         — in-memory storage of session result
+Services/PostSessionAnalyzer.swift  — runs sliding window analysis on full session video after recording ends
+Services/VideoRangePlayer.swift     — AVPlayer wrapper for ranged playback using seek + forwardPlaybackEndTime
+Services/SessionStore.swift         — in-memory storage of session result and main video URL
 
 Utilities/ResultExporter.swift      — exports full scrollable Result screen as JPG
 Utilities/PerformanceFeedback.swift — contextual feedback text per rating
@@ -74,15 +74,15 @@ Implement in this strict sequence. Do not skip ahead or build out of order:
 1. **Read all existing files** — understand models, view bindings, and state flow first
 2. **`ColorExtensions.swift`** — `Color.performanceColor(for:)` and `Color.performanceLabel(for:)`
 3. **`PerformanceFeedback.swift`** — feedback text per move and rating
-4. **`SessionStore.swift`** — in-memory store for `SessionState` / result
-5. **`MovementAggregator.swift`** — majority vote + average confidence logic
-6. **`VisionProcessor.swift`** — Vision body pose detection wrapper
-7. **`MLInferenceEngine.swift`** — CoreML placeholder wrapper
-8. **`AudioCuePlayer.swift`** — AVFoundation audio cue player with placeholder asset slots
-9. **`ClipRecorder.swift`** — AVAssetWriter clip recording, keep/discard logic
-10. **`SessionManager.swift`** — full session orchestration (timer, move sequencing, wiring)
+4. **`SessionStore.swift`** — in-memory store for `SessionState` + main video URL
+5. **`VisionProcessor.swift`** — Vision body pose detection wrapper (calibration UI only)
+6. **`MLInferenceEngine.swift`** — CoreML Action Classifier placeholder wrapper
+7. **`AudioCuePlayer.swift`** — AVFoundation audio cue player with placeholder asset slots
+8. **`SessionManager.swift`** — full session orchestration (timer, move sequencing, full video recording via AVAssetWriter)
+9. **`PostSessionAnalyzer.swift`** — sliding window analysis on recorded video, event grouping, representative window selection
+10. **`VideoRangePlayer.swift`** — AVPlayer ranged playback wrapper
 11. **`ResultExporter.swift`** — full scrollable JPG export
-12. **Wire into views** — inject `SessionManager` and `SessionStore` into `RecordingView` and `ResultsView` last
+12. **Wire into views** — inject `SessionManager`, `SessionStore`, and `VideoRangePlayer` into `RecordingView` and `ResultsView` last
 
 ---
 
@@ -95,7 +95,6 @@ The following components are **intentionally unimplemented**. Leave placeholder 
 | CoreML `.mlmodel` file | `MLInferenceEngine.swift` | Dev Team |
 | Audio cue `.mp3` files (6 files) | `AudioCuePlayer.swift` | Developer |
 | Correct movement `.mp4` reference videos | `ResultsView.swift` bottom sheet | Developer |
-| User clip recording inside `MLInferenceEngine` | `ClipRecorder.swift` | Dev Team |
 
 ---
 
@@ -103,58 +102,59 @@ The following components are **intentionally unimplemented**. Leave placeholder 
 
 #### Session
 - Duration: exactly **2 minutes (120 seconds)** — fixed, not configurable
-- Each move window: exactly **3 seconds** — fixed
+- Audio cues fire every **3 seconds** to prompt the next move — fixed
 - Combo loops continuously until timer expires or user stops
-- Each loop occurrence of a move = **its own independent `SessionEvent`** with its own timestamp and clip
+- The full session is recorded as **one continuous video file** saved to temp storage
 
 #### Camera Calibration
 - The setup hint sheet in `RecordingView` is a **UX reminder only** — not a hard gate
 - "I'm Ready" is always tappable — do not add any lock condition
-- If body pose is lost mid-session: session **continues**, that window logs as `noBodyDetected` at 0% Red
 
-#### ML Aggregation (per 3-second window)
-- Collect all frame predictions (~90 frames at 30fps)
-- **Label** = most frequent predicted label (majority vote)
-- **Confidence** = average confidence of frames that voted for the winning label
-- If no valid prediction: label = `noMovementDetected`, confidence = 0.0
+#### Post-Session Analysis
+- Runs **after** recording ends — not during
+- Uses Apple CoreML Action Classifier with **60-frame sliding window @ 30fps** (= 2-second window)
+- Full session video is fed through the analyzer frame by frame
+- Each window produces: `{ label, confidence, windowStartTime, windowEndTime }`
+- **Filter:** confidence ≤ 20% → ignored entirely (undetected)
+- **Filter:** confidence > 80% → ignored (correct, not shown in results)
+- **Group:** consecutive overlapping windows of the same label → one `SessionEvent`
+- **Representative window:** highest confidence window within a group is selected
+- **Rating:** based on representative window confidence (21–50% = Red, 51–80% = Yellow)
+- **Playback range:** representative window start/end ± 0.5s padding (configurable via `clipPaddingSeconds` constant)
+- Results timeline order: **chronological**
 
 #### Stop Button
 - Tapping Stop shows a **confirmation dialog** — session timer keeps running in background
-- If 2-minute timer expires while dialog is open: finalize session, dismiss dialog, navigate to Results automatically
+- If 2-minute timer expires while dialog is open: stop recording, begin analysis, navigate to Results automatically
 - Result screen always shows regardless of how many moves were completed
 
-#### Clip Recording
-| Rating | Confidence | Action |
-|---|---|---|
-| 🟢 Green | 85–100% | Discard clip immediately |
-| 🟡 Yellow | 50–84% | Save clip to permanent directory |
-| 🔴 Red | 0–49% | Save clip to permanent directory |
-| ⚠️ No Scan | 0% (no body) | Save clip to permanent directory |
-| ❌ No Movement | 0% (unknown) | Save clip to permanent directory |
+#### Ranged Playback (No Clip Extraction)
+- No physical video clips are extracted or written to disk
+- The main session video file is reused for all event playback
+- Each `SessionEvent` stores `playbackStartTime` and `playbackEndTime` (padded window range)
+- `VideoRangePlayer` seeks to `playbackStartTime` and sets `forwardPlaybackEndTime` on the same `AVPlayer`
 
-#### Clip Storage Lifetime
-- Clips are deleted when the user **navigates away from the Results screen**
-- Clips are deleted when the **app is closed** (startup cleanup on next launch)
+#### Main Video Storage Lifetime
+- Main video saved to **temp directory** during recording
+- Remains in temp directory while Results screen is shown (needed for playback)
+- User can tap **Save** button on Results screen to copy to permanent Photo Library
+- Deleted when user **navigates away from Results screen**
+- Deleted on **app launch** (startup cleanup from any previous session)
 
 #### JPG Export
 - Must capture the **entire scrollable content** of `ResultsView` — not just the visible viewport
-- One long image including all timeline events, stats, and session details
-
-#### Timestamps (Results Timeline)
-- **All `SessionEvent` entries are tappable** — Green, Yellow, Red, No Scan, No Movement
-- Green modal: shows "Excellent" message, no clip (clip was discarded)
-- Yellow/Red/NoScan/NoMovement modal: shows clip, suggestion, reference video placeholder
+- One long image including all timeline events and session stats
 
 ---
 
 ### 7. Performance Color System
 
-| Confidence | Color | Label |
-|---|---|---|
-| 85–100% | 🟢 `Color.systemGreen` | Excellent |
-| 50–84% | 🟡 `Color.systemYellow` | Fair |
-| 0–49% | 🔴 `Color.systemRed` | Poor |
-| No Scan / No Movement | 🔴 `Color.systemRed` | No Scan / No Movement |
+| Confidence | Color | Label | Shown in Results |
+|---|---|---|---|
+| 0–20% | — | Undetected | ❌ Not shown |
+| 21–50% | 🔴 `Color.systemRed` | Wrong Move | ✅ Shown |
+| 51–80% | 🟡 `Color.systemYellow` | Needs Adjustment | ✅ Shown |
+| 80%+ | 🟢 `Color.systemGreen` | Correct | ❌ Not shown |
 
 ---
 
@@ -170,18 +170,28 @@ The `allCombos` array in `Models.swift` is already defined and must not be modif
 |---|---|
 | Existing files | Do not modify — read and extend only |
 | New model files | Do not create — use types from `Models.swift` |
-| `generateEvents()` | Replace with real pipeline output after session |
+| `generateEvents()` | Replace with real pipeline output from `PostSessionAnalyzer` |
 | Build order | Strict — follow Step 4 above |
 | Placeholders | Leave all `// TODO` exactly as written |
 | Session duration | 2 minutes, fixed |
-| Move window | 3 seconds, fixed |
-| Combo looping | Each occurrence = independent event + clip decision |
+| Audio cue interval | Every 3 seconds, fixed |
+| Analysis timing | Post-recording only — full video analyzed after session ends |
+| Action Classifier window | 60 frames @ 30fps = 2-second window |
+| Confidence: 0–20% | Undetected — ignored entirely, not shown |
+| Confidence: 21–50% | Wrong Move 🔴 — shown in results |
+| Confidence: 51–80% | Needs Adjustment 🟡 — shown in results |
+| Confidence: 80%+ | Correct — not shown in results |
+| Window grouping | Consecutive same-label overlapping windows → one event |
+| Representative window | Highest confidence window within group |
+| Playback | Ranged playback on main video — no clip extraction |
+| Playback padding | 0.5s each side (configurable via `clipPaddingSeconds`) |
+| Main video storage | Temp until user leaves Results or app closes |
+| Save video | User-initiated via Save button → Photo Library |
 | Stop dialog | Timer keeps running; auto-finalizes if time expires |
 | Calibration | UX reminder only, always tappable |
-| Clip — Green | Discard immediately after evaluation |
-| Clip — all others | Save until user leaves Results or app closes |
+| Live log | Removed — all evaluation shown post-session on Results screen |
+| Results order | Chronological |
 | JPG export | Full scrollable content, not visible area only |
-| All timeline events | Tappable regardless of rating |
 
 ---
 
@@ -189,8 +199,8 @@ The `allCombos` array in `Models.swift` is already defined and must not be modif
 **Project Status:** Backend Implementation Phase
 **Date Created:** May 3, 2026
 **Expert Role:** 50-Year Veteran iOS Developer & AI Engineer
-**Model Type:** CoreML Action Classifier (Pre-trained by Team)
-**Document Version:** 5.0 — Project State Synchronized with BoxMaxxingFinal
+**Model Type:** CoreML Action Classifier (Apple Create ML, 60-frame window @ 30fps)
+**Document Version:** 6.0 — Post-Recording Analysis Architecture + Ranged Playback
 
 ---
 
@@ -198,20 +208,25 @@ The `allCombos` array in `Models.swift` is already defined and must not be modif
 
 | # | Topic | Decision |
 |---|---|---|
-| 1 | Camera Calibration | Reminder-only UX. Always tappable. Mid-session failures continue — logged as "No Scan" (Red) |
-| 2 | ML Inference Aggregation | Majority vote for label + average confidence of winning label's frames |
-| 3 | Clip Per Loop Occurrence | Each move occurrence = independent timestamp + independent clip |
-| 4 | Manual Stop | Confirmation dialog required. Result page always shows |
-| 5 | Clip Storage Lifetime | Deleted when user leaves Result screen or app is closed |
+| 1 | Camera Calibration | Reminder-only UX. Always tappable. Mid-session failures continue — not logged, ignored in post-analysis |
+| 2 | ML Inference Strategy | Post-recording only — full 2-minute video is analyzed after session ends, not frame-by-frame during recording |
+| 3 | Analysis Unit | Apple Action Classifier sliding window — 60 frames @ 30fps = 2-second window per prediction |
+| 4 | Manual Stop | Confirmation dialog required. Result page always shows regardless of session length |
+| 5 | Main Video Storage | Saved to temp storage during session. User can save permanently via Save button on Results screen |
 | 6 | JPG Export | Exports **entire scrollable content** as one long image |
-| 7 | Green Tappable | Yes — all timestamps are tappable. Green modal shows "Excellent" message, no clip |
-| 8 | Model Unknown / No Move | Treated as "No Movement Detected" → 0% confidence → 🔴 Red → clip saved |
+| 7 | Confidence Tiers | 0–20% = undetected (ignored entirely). 21–50% = Wrong Move 🔴. 51–80% = Needs Adjustment 🟡. 80%+ = Correct (not shown) |
+| 8 | Clip Strategy | No physical clips extracted. Ranged playback on main video using `AVPlayer` seek + `forwardPlaybackEndTime` |
+| 9 | Window Grouping | Consecutive overlapping windows of same label are grouped into one event. Best confidence window selected as representative |
+| 10 | Representative Window | Highest confidence window within a grouped event is used for ranged playback timestamps |
+| 11 | Playback Padding | 0.5 seconds added before and after the representative window start/end — configurable constant |
+| 12 | Live Feedback | Removed. No live log during recording. All evaluation shown on Results screen after analysis completes |
+| 13 | Results Timeline Order | Chronological — earliest flagged event first |
 
 ---
 
 ## Executive Summary
 
-ShadowBox is a real-time shadow boxing training companion app with AI-powered movement analysis. The app guides users through selected boxing combos, captures their performance via computer vision, analyzes movements using a CoreML model, and provides detailed performance feedback.
+ShadowBox is a shadow boxing training companion app with AI-powered movement analysis. The app guides users through selected boxing combos via audio cues, records the full 2-minute session as a single video file, then analyzes the recording using a CoreML Action Classifier after the session ends. Results are presented as a chronological timeline of flagged events — only Yellow (needs adjustment) and Red (wrong move) events are shown. Each flagged event uses ranged playback on the original video file — no physical clip extraction occurs.
 
 **Key Constraint:** Backend logic must be **tailored to match the final frontend/UI** (not the other way around).
 
@@ -226,25 +241,28 @@ ShadowBox is a real-time shadow boxing training companion app with AI-powered mo
 └──────┬──────┘
        │ "Start Session"
        ▼
-┌─────────────┐
-│   RECORD    │  (Camera calibration → Recording → Analysis)
-└──────┬──────┘
-       │ Session ends (2 min or manual stop)
+┌─────────────────────────────────┐
+│   RECORD                        │
+│   Phase 1: Camera Calibration   │
+│   Phase 2: 2-min Recording      │
+│   Phase 3: Post-Session Analysis│
+└──────┬──────────────────────────┘
+       │ Analysis complete
        ▼
 ┌─────────────┐
-│   RESULT    │  (Performance summary & detailed breakdown)
+│   RESULT    │  (Performance summary & flagged event timeline)
 └─────────────┘
 ```
 
 ### Tech Stack Required
 - **Language:** Swift / SwiftUI
-- **Camera & Vision:** AVFoundation + Vision framework
-- **ML Inference:** CoreML (pre-trained model provided by team)
-- **Audio:** AVFoundation (placeholder audio files)
-- **Clip Recording:** AVAssetWriter + AVAssetWriterInput (auto-clip Yellow/Red movements)
-- **Clip Playback:** AVPlayer + AVKit VideoPlayer
-- **UI Export:** UIGraphicsImageRenderer (JPG export)
-- **Storage:** In-memory session management + local file system for clips (temp + permanent)
+- **Camera & Video Recording:** AVFoundation (`AVCaptureSession` + `AVAssetWriter` for full session video)
+- **Vision & Pose:** Vision framework (`VNDetectHumanBodyPoseRequest`)
+- **ML Inference:** CoreML Action Classifier (Apple Create ML, 60-frame sliding window @ 30fps)
+- **Audio:** AVFoundation (placeholder audio cue files)
+- **Ranged Playback:** `AVPlayer` with `seek(to:)` + `forwardPlaybackEndTime` — no clip extraction
+- **UI Export:** UIGraphicsImageRenderer (JPG export of full Results screen)
+- **Storage:** In-memory session state + temp local file for main session video
 
 ---
 
@@ -311,21 +329,31 @@ class MenuViewModel: ObservableObject {
 
 ```
 ┌──────────────────────────────────────┐
-│  CAMERA CALIBRATION PHASE            │
-│  (Vision framework scans for pose)   │
+│  PHASE 1: CAMERA CALIBRATION         │
+│  UX reminder — user positions body   │
 │  User taps "I'm Ready"               │
 └──────────────┬───────────────────────┘
                │
                ▼
 ┌──────────────────────────────────────┐
-│  RECORDING / SHADOW BOXING PHASE     │
-│  (2 minutes, sequential moves)       │
+│  PHASE 2: RECORDING                  │
+│  2 minutes, audio cues every 3s      │
+│  Full session recorded as one video  │
 └──────────────┬───────────────────────┘
-               │
+               │ Recording ends (timer or manual stop)
                ▼
 ┌──────────────────────────────────────┐
-│  SESSION ENDS                        │
-│  Navigate to Result screen           │
+│  PHASE 3: POST-SESSION ANALYSIS      │
+│  "Reviewing…" spinner shown          │
+│  PostSessionAnalyzer runs on video   │
+│  Sliding window → group → rank       │
+└──────────────┬───────────────────────┘
+               │ Analysis complete
+               ▼
+┌──────────────────────────────────────┐
+│  RESULT SCREEN                       │
+│  Chronological timeline of flags     │
+│  Ranged playback per event           │
 └──────────────────────────────────────┘
 ```
 
@@ -379,295 +407,247 @@ class VisionProcessor {
 
 ### Phase 2: Recording & Shadow Boxing
 
-#### Move Sequencing Logic
+#### Full Session Video Recording
 
-- Moves from the selected combo play **sequentially**, one at a time
-- Each move gets a **3-second window**
-- When combo finishes, it **loops** until 2-minute timer expires or user stops
+The entire 2-minute session is recorded as **one continuous video file** using `AVAssetWriter`. This is the source file for all post-session analysis and ranged playback.
+
+- File written to **temp directory** during recording
+- Resolution and frame rate must match capture session settings
+- File is finalized (`.finishWriting()`) when the session ends
+- Audio is **not** recorded in the session video — audio cues are system-only playback
+
+#### Move Sequencing & Audio Cues
+
+- Audio cues fire every **3 seconds** to prompt the next move
+- Combo loops continuously until the 2-minute timer expires or user stops
+- Audio cues are **UX guidance only** — they do not define clip boundaries
+- The model determines move timestamps independently during post-session analysis
 
 **Example (Combo: Jab → Straight):**
 ```
-0:00 - 0:03  → Jab (audio cue: "JAB!", timer counts down)
-0:03 - 0:06  → Straight (audio cue: "STRAIGHT!", timer counts down)
-0:06 - 0:09  → Jab (loop repeats)
-0:09 - 0:12  → Straight
+0:00  → Audio cue: "JAB!"
+0:03  → Audio cue: "STRAIGHT!"
+0:06  → Audio cue: "JAB!" (loop)
+0:09  → Audio cue: "STRAIGHT!"
 ... (continues until 2:00 or manual stop)
 ```
 
-#### 3-Second Movement Window Breakdown
-
-**Start of Window (T=0s):**
-- Audio cue plays (e.g., "JAB!")
-- UI displays current move name
-- Camera capture begins
-- CoreML inference loop starts
-
-**During Window (T=0-3s):**
-- Camera frames are captured at regular intervals (e.g., 30 fps)
-- Each frame is fed into MLInferenceEngine
-- Model returns predicted move + confidence score
-- Movement data is collected in real-time
-
-**End of Window (T=3s):**
-- Movement data is aggregated
-- Result is logged (correct/incorrect, confidence %)
-- UI log is updated with new entry
-- Advance to next move in sequence
-
-#### Movement Analysis
-
-**Clarified Aggregation Logic (v3.0):**
-
-At ~30fps over 3 seconds, the model produces ~90 predictions per window. These are aggregated using two rules:
-
-1. **Predicted Label** → **Most Frequent Label** (majority vote across all frames)
-2. **Confidence Score** → **Average Confidence** of all frames for the winning label
-
-```swift
-struct FramePrediction {
-    let label: String       // e.g. "jab"
-    let confidence: Float   // 0.0 - 1.0
-}
-
-struct MovementAggregator {
-
-    // Called at T=3s with all collected frame predictions
-    func aggregate(predictions: [FramePrediction]) -> (label: String, confidence: Float) {
-
-        guard !predictions.isEmpty else {
-            // No frames captured — body not detected
-            return ("no_movement_detected", 0.0)
-        }
-
-        // Step 1: Find the most frequent label (majority vote)
-        let labelCounts = Dictionary(grouping: predictions, by: { $0.label })
-            .mapValues { $0.count }
-        let dominantLabel = labelCounts.max(by: { $0.value < $1.value })?.key ?? "no_movement_detected"
-
-        // Step 2: Average confidence of all frames that voted for dominant label
-        let dominantFrames = predictions.filter { $0.label == dominantLabel }
-        let avgConfidence = dominantFrames.map { $0.confidence }.reduce(0, +) / Float(dominantFrames.count)
-
-        return (dominantLabel, avgConfidence)
-    }
-}
-```
-
-**Example:**
-```
-90 frames collected during "Jab" window:
-  - 60 frames predicted: "jab" (avg confidence 91%)
-  - 20 frames predicted: "straight" (avg confidence 70%)
-  - 10 frames predicted: "left hook" (avg confidence 55%)
-
-Result:
-  → Dominant label: "jab" (60 votes — majority)
-  → Final confidence: 91% (average of jab frames only)
-  → Rating: 🟢 GREEN
-```
-
-For each 3-second window:
-
-```swift
-struct MovementAnalysis {
-    let expectedMove: String
-    let predictedMove: String   // Most frequent label
-    let confidence: Float       // Average confidence of dominant label frames
-    let isAccurate: Bool
-
-    // isAccurate = (predictedMove == expectedMove) && (confidence >= 0.85)
-}
-```
-
-**Confidence Threshold for Accuracy:** 85% (aligns with Green rating = correct execution)
-
-#### CoreML Integration (PLACEHOLDER)
-
-```swift
-class MLInferenceEngine {
-    // PLACEHOLDER — Team to integrate CoreML model
-    
-    func loadModel() {
-        // TODO: Load YourActionClassifier.mlmodel
-    }
-    
-    func predictMove(poseObservations: [VNHumanBodyPoseObservation]) -> (label: String, confidence: Float) {
-        // TODO: Convert pose observations to model input
-        // TODO: Run inference
-        // TODO: Parse output (label, confidence)
-        // Return predicted label and confidence score
-    }
-}
-```
-
-**Expected Model Output:**
-- **Labels:** "jab", "straight", "left hook", "right hook", "left uppercut", "right uppercut"
-- **Confidence:** Float (0.0 - 1.0)
-
-#### Audio Cue System (PLACEHOLDER)
-
-```swift
-class AudioCuePlayer {
-    // PLACEHOLDER — Developer to add sound files
-    
-    let audioFilePaths: [String: String] = [
-        "jab": "cue_jab.mp3",                       // TODO: Add file
-        "straight": "cue_straight.mp3",             // TODO: Add file
-        "left hook": "cue_left_hook.mp3",           // TODO: Add file
-        "right hook": "cue_right_hook.mp3",         // TODO: Add file
-        "left uppercut": "cue_left_uppercut.mp3",   // TODO: Add file
-        "right uppercut": "cue_right_uppercut.mp3"  // TODO: Add file
-    ]
-    
-    func playAudioCue(for move: String) {
-        // TODO: Load audio file for move
-        // TODO: Play using AVAudioPlayer or AVPlayer
-    }
-}
-```
-
-#### Movement Logger
-
-Every 3 seconds, a new `SessionEvent` (from `Models.swift`) is appended to the session log:
-
-```swift
-// NOTE: Do NOT create a new struct — use the existing SessionEvent from Models.swift
-// The following shows what fields SessionEvent must support for logging:
-
-// SessionEvent fields used per window:
-//   - id: UUID
-//   - timestamp: Date
-//   - elapsedTime: TimeInterval  (seconds from session start)
-//   - expectedMove: Move         (the Move value from allMoves)
-//   - predictedMove: String      (label returned by MLInferenceEngine)
-//   - confidence: Float          (0.0 - 1.0, aggregated by MovementAggregator)
-//   - isAccurate: Bool           (predictedMove == expectedMove.label && confidence >= 0.85)
-//   - clipURL: URL?              (nil for Green, saved URL for Yellow/Red/NoScan/NoMovement)
-
-// Appended to SessionState.events every 3 seconds inside SessionManager
-```
-
-#### Live Movement Log UI Display
-
-**Requirements:**
-- Log updates every 3 seconds (one entry per movement window)
-- Shows: timestamp, move name, result (✅/❌), confidence %
-- Is scrollable and displays latest entries at bottom
-- Example log entry display:
-
-```
-[00:03] Expected: Jab | Predicted: Jab | ✅ 92%
-[00:06] Expected: Straight | Predicted: Straight | ✅ 88%
-[00:09] Expected: Jab | Predicted: Left Hook | ❌ 65%
-[00:12] Expected: Straight | Predicted: Straight | ✅ 91%
-```
-
 #### Session Manager (Core Orchestration)
-
-**Clarified Rules (v3.0):**
-- **Manual Stop** → Shows a **confirmation dialog** before stopping. Result page always shows regardless of how many movements were completed.
-- **Combo Looping** → Each occurrence of a move in each loop is treated as its **own independent timestamp and clip**. If the user performs "Jab" 15 times across loops, there are 15 separate log entries and up to 15 separate clips (Yellow/Red only).
 
 ```swift
 class SessionManager: ObservableObject {
     @Published var isRecording: Bool = false
     @Published var currentMoveIndex: Int = 0
     @Published var elapsedTime: TimeInterval = 0
-    @Published var events: [SessionEvent] = []  // Uses existing SessionEvent from Models.swift
     @Published var showStopConfirmation: Bool = false
+    @Published var isAnalyzing: Bool = false  // Shows "Reviewing…" spinner
 
-    let sessionDuration: TimeInterval = 120  // 2 minutes — fixed
-    let moveWindowDuration: TimeInterval = 3.0
-    let selectedCombo: [String]
+    let sessionDuration: TimeInterval = 120   // 2 minutes — fixed
+    let audioCueInterval: TimeInterval = 3.0  // Audio cue fires every 3s
+    let selectedCombo: Combo                  // Uses Combo from Models.swift
 
-    // Global window counter — increments every 3s regardless of combo position
-    // Used for unique clip file naming and timestamp tracking
-    private var globalWindowIndex: Int = 0
+    // Full session video writer
+    private var sessionVideoWriter: AVAssetWriter?
+    private var sessionVideoURL: URL?         // Temp file URL
 
-    var currentMove: String {
-        let loopedIndex = currentMoveIndex % selectedCombo.count
-        return selectedCombo[loopedIndex]
+    var currentMove: Move {
+        let loopedIndex = currentMoveIndex % selectedCombo.moves.count
+        return selectedCombo.moves[loopedIndex]
     }
 
     func startRecording() {
         isRecording = true
-        globalWindowIndex = 0
-        startSessionTimer()
-        startMoveTimer()
+        setupSessionVideoWriter()   // Begin writing full video to temp file
+        startSessionTimer()         // 120s countdown
+        startAudioCueTimer()        // Fires every 3s, advances currentMoveIndex
     }
 
-    // Called when user taps Stop button
     func requestStop() {
-        showStopConfirmation = true  // Triggers confirmation dialog
+        showStopConfirmation = true
     }
 
-    // Called when user confirms stop in dialog
     func confirmStop() {
         showStopConfirmation = false
         finalizeSession()
     }
 
-    // Called when user cancels stop in dialog
     func cancelStop() {
         showStopConfirmation = false
-        // Session continues normally
     }
 
     func finalizeSession() {
         isRecording = false
-        // Build SessionState from collected SessionEvents
-        // Store in SessionStore.shared
-        // Navigate to Result screen
+        sessionVideoWriter?.finishWriting {
+            self.isAnalyzing = true
+            // Hand off to PostSessionAnalyzer
+        }
     }
 
     func startSessionTimer() {
-        // Timer that runs every 1 second
-        // Updates elapsedTime
+        // Fires every 1 second
         // When elapsedTime >= 120 → call finalizeSession()
     }
 
-    func startMoveTimer() {
-        // Timer that fires every 3 seconds
-        // On fire:
-        //   1. Aggregate frame predictions → (label, confidence)
-        //   2. Evaluate clip (keep or discard)
-        //   3. Append new SessionEvent with globalWindowIndex
-        //   4. globalWindowIndex += 1
-        //   5. currentMoveIndex += 1 (loops via modulo)
-        //   6. Start next window: audio cue + clip recording
+    func startAudioCueTimer() {
+        // Fires every 3 seconds
+        // On fire: play audio cue for currentMove, then advance currentMoveIndex
+    }
+
+    func setupSessionVideoWriter() {
+        // Create AVAssetWriter writing to temp directory
+        // Add AVAssetWriterInput for video track
+        // Begin writing session — frames appended from AVCaptureSession delegate
     }
 }
 ```
 
-**Confirmation Dialog UI:**
-```swift
-Alert(
-    title: Text("Stop Session?"),
-    message: Text("Your current progress will be saved and taken to the results page."),
-    primaryButton: .destructive(Text("Stop")) {
-        sessionManager.confirmStop()
-    },
-    secondaryButton: .cancel(Text("Continue")) {
-        sessionManager.cancelStop()
-    }
-)
+---
+
+### Phase 3: Post-Session Analysis
+
+This phase runs immediately after recording ends, while the "Reviewing…" spinner is shown. It is entirely separate from the recording pipeline.
+
+#### How the Action Classifier Sliding Window Works
+
+The Apple CoreML Action Classifier processes video using a **sliding window** of fixed frame count:
+
+- **Window size:** 60 frames (as configured in Create ML)
+- **Frame rate:** 30fps → each window covers **2 seconds** of video
+- **Stride:** the window slides forward by a fixed number of frames after each prediction
+- Each window produces one prediction: `{ label: String, confidence: Float }`
+- The same physical move will appear across **multiple overlapping consecutive windows** — this is expected
+
+**Example of overlapping windows on one jab rep:**
+```
+Window @ 3.0s–5.0s:  jab, confidence: 0.41  (red)
+Window @ 3.1s–5.1s:  jab, confidence: 0.55  (yellow)
+Window @ 3.2s–5.2s:  jab, confidence: 0.71  (yellow)  ← highest
+Window @ 3.3s–5.3s:  jab, confidence: 0.63  (yellow)
+Window @ 3.4s–5.4s:  jab, confidence: 0.38  (red)
 ```
 
-#### Recording Session State
+These 5 windows all describe the same jab rep — they must be **grouped into one `SessionEvent`**.
 
-During the 2-minute recording, the app maintains state using the existing `SessionState` from `Models.swift`:
+#### PostSessionAnalyzer Pipeline
 
 ```swift
-// NOTE: Do NOT create a new struct — use the existing SessionState from Models.swift
-// SessionState must hold:
-//   - sessionID: UUID
-//   - selectedCombo: Combo       (the Combo value chosen in MenuView)
-//   - startTime: Date
-//   - events: [SessionEvent]     (appended every 3 seconds)
-//   - isActive: Bool
-//
-// SessionManager owns and mutates this SessionState throughout the session
-// SessionStore.shared holds the final SessionState when session ends
+// FILE: Services/PostSessionAnalyzer.swift
+
+class PostSessionAnalyzer {
+
+    // MARK: - Constants
+    let clipPaddingSeconds: Double = 0.5  // Configurable padding on each side of playback range
+
+    // MARK: - Confidence Tiers
+    // 0.00–0.20  → undetected  → ignored entirely
+    // 0.21–0.50  → wrong move  → 🔴 Red
+    // 0.51–0.80  → adjustment  → 🟡 Yellow
+    // 0.80+      → correct     → ignored (not shown)
+
+    // MARK: - Main Entry Point
+    func analyze(videoURL: URL, completion: @escaping ([SessionEvent]) -> Void) {
+        // TODO: Load CoreML model via MLInferenceEngine
+        // Step 1: Extract pose observations frame by frame from videoURL
+        // Step 2: Feed frames through 60-frame sliding window
+        // Step 3: Collect raw window predictions
+        // Step 4: Filter out undetected (≤ 20%) and correct (> 80%)
+        // Step 5: Group consecutive overlapping same-label windows
+        // Step 6: Select representative window (highest confidence) per group
+        // Step 7: Build SessionEvent array
+        // Step 8: Return sorted chronologically
+        completion([])
+    }
+
+    // MARK: - Step 5: Group overlapping windows
+    func groupWindows(_ predictions: [WindowPrediction]) -> [[WindowPrediction]] {
+        // Consecutive windows with same label = one group
+        // A new group starts when label changes or there is a time gap
+        // Returns array of groups, each group = one physical move occurrence
+    }
+
+    // MARK: - Step 6: Select representative window per group
+    func selectRepresentative(from group: [WindowPrediction]) -> WindowPrediction {
+        // Return window with highest confidence within the group
+        return group.max(by: { $0.confidence < $1.confidence })!
+    }
+
+    // MARK: - Step 7: Build SessionEvent from representative window
+    func buildEvent(from window: WindowPrediction) -> SessionEvent {
+        let paddedStart = max(0, window.startTime - clipPaddingSeconds)
+        let paddedEnd   = window.endTime + clipPaddingSeconds
+
+        return SessionEvent(
+            id: UUID(),
+            timestamp: Date(),
+            elapsedTime: window.startTime,
+            predictedLabel: window.label,
+            confidence: window.confidence,
+            playbackStartTime: paddedStart,
+            playbackEndTime: paddedEnd
+        )
+    }
+}
+
+// MARK: - Supporting Types
+
+struct WindowPrediction {
+    let label: String           // e.g. "jab"
+    let confidence: Float       // 0.0–1.0
+    let startTime: Double       // Seconds from video start
+    let endTime: Double         // startTime + window duration
+}
+```
+
+#### VideoRangePlayer Service
+
+```swift
+// FILE: Services/VideoRangePlayer.swift
+
+import AVFoundation
+import AVKit
+
+class VideoRangePlayer: ObservableObject {
+
+    private var player: AVPlayer?
+    private var playerItem: AVPlayerItem?
+
+    // Set up the player once with the main session video
+    func configure(videoURL: URL) {
+        playerItem = AVPlayerItem(url: videoURL)
+        player = AVPlayer(playerItem: playerItem)
+    }
+
+    // Play a specific time range — no clip extraction
+    func play(from startSeconds: Double, to endSeconds: Double) {
+        guard let player = player else { return }
+
+        let startTime = CMTime(seconds: startSeconds, preferredTimescale: 600)
+        let endTime   = CMTime(seconds: endSeconds,   preferredTimescale: 600)
+
+        player.currentItem?.forwardPlaybackEndTime = endTime
+        player.seek(to: startTime) { _ in
+            player.play()
+        }
+    }
+
+    func pause() {
+        player?.pause()
+    }
+
+    func getPlayer() -> AVPlayer? {
+        return player
+    }
+}
+```
+
+**Usage in ResultsView event modal:**
+```swift
+// One shared VideoRangePlayer instance per Results screen
+// When user taps a SessionEvent card:
+videoRangePlayer.play(
+    from: event.playbackStartTime,
+    to: event.playbackEndTime
+)
 ```
 
 ---
@@ -1056,91 +1036,73 @@ struct Combo {
 ```
 
 #### `SessionEvent`
-**This is the equivalent of `MovementEntry` from earlier planning notes.** One entry per 3-second window. Must support:
+One entry per flagged movement event detected during post-session analysis. Only Yellow and Red events are stored — correct and undetected events are discarded during analysis. Must support:
 ```swift
 // Already in Models.swift — verify it has (extend if missing):
 struct SessionEvent {
     let id: UUID
     let timestamp: Date
-    let elapsedTime: TimeInterval   // Seconds from session start
-    let expectedMove: Move          // What was prompted
-    let predictedLabel: String      // What ML returned ("jab", "no_movement_detected", etc.)
-    let confidence: Float           // 0.0 - 1.0 (aggregated avg)
-    let isAccurate: Bool            // predictedLabel == expectedMove.id && confidence >= 0.85
-    let clipURL: URL?               // nil = Green (discarded), URL = Yellow/Red/NoScan/NoMovement
+    let elapsedTime: TimeInterval    // Seconds from video start (= representative window start)
+    let predictedLabel: String       // e.g. "jab", "straight", "left hook"
+    let confidence: Float            // 0.0–1.0 (representative window — highest in group)
+    let playbackStartTime: Double    // Padded start for ranged playback (seconds)
+    let playbackEndTime: Double      // Padded end for ranged playback (seconds)
 
     // Computed — add if missing:
     var confidencePercentage: Float { confidence * 100 }
 
-    var movementState: MovementState {
-        switch predictedLabel {
-        case "no_body_detected":    return .noScan
-        case "no_movement_detected": return .noMovement
-        default:
-            switch confidencePercentage {
-            case 85...100: return .excellent
-            case 50...84:  return .fair
-            default:       return .poor
-            }
+    var movementRating: MovementRating {
+        switch confidencePercentage {
+        case 51...80: return .needsAdjustment   // 🟡 Yellow
+        default:      return .wrongMove          // 🔴 Red (21–50%)
         }
     }
 
-    var hasClip: Bool { clipURL != nil }
+    var hasPlaybackRange: Bool { playbackEndTime > playbackStartTime }
 }
 
-enum MovementState {
-    case excellent      // 🟢 85-100%
-    case fair           // 🟡 50-84%
-    case poor           // 🔴 0-49%
-    case noScan         // ⚠️ body not detected
-    case noMovement     // ❌ model returned unknown
+enum MovementRating {
+    case wrongMove         // 🔴 21–50%
+    case needsAdjustment   // 🟡 51–80%
 
     var color: Color {
         switch self {
-        case .excellent:                        return .green
-        case .fair:                             return .yellow
-        case .poor, .noScan, .noMovement:       return .red
+        case .wrongMove:       return .red
+        case .needsAdjustment: return .yellow
         }
     }
 
     var label: String {
         switch self {
-        case .excellent:  return "Excellent"
-        case .fair:       return "Fair"
-        case .poor:       return "Poor"
-        case .noScan:     return "No Scan"
-        case .noMovement: return "No Movement"
+        case .wrongMove:       return "Wrong Move"
+        case .needsAdjustment: return "Needs Adjustment"
         }
     }
-
-    var isClipSaved: Bool { self != .excellent }
 }
+```
 ```
 
 #### `SessionState`
-The full state of a session — owns the list of `SessionEvent` entries. Must support:
+The full result of a session — owns the list of flagged `SessionEvent` entries and the main video URL. Must support:
 ```swift
 // Already in Models.swift — verify it has (extend if missing):
 struct SessionState {
     let sessionID: UUID
     let startDate: Date
     let selectedCombo: Combo
-    var events: [SessionEvent]
+    var events: [SessionEvent]       // Only Yellow + Red events (sorted chronologically)
     var totalDuration: TimeInterval
+    var sessionVideoURL: URL?        // Temp URL of full 2-minute recording
 
     // Computed — add if missing:
-    var totalMovements: Int { events.count }
+    var totalFlaggedEvents: Int { events.count }
 
-    var accurateMovements: Int {
-        events.filter { $0.isAccurate }.count
+    var wrongMoveCount: Int {
+        events.filter { $0.movementRating == .wrongMove }.count
     }
 
-    var movementErrors: Int {
-        events.filter { !$0.isAccurate }.count
-    }
-
-    var accuracyRate: Float {
-        totalMovements == 0 ? 0 : Float(accurateMovements) / Float(totalMovements) * 100
+    var needsAdjustmentCount: Int {
+        events.filter { $0.movementRating == .needsAdjustment }.count
     }
 
     var averageConfidence: Float {
@@ -1180,6 +1142,10 @@ class SessionStore: ObservableObject {
     }
 
     func clear() {
+        // Delete main session video from temp storage before clearing
+        if let url = currentSession?.sessionVideoURL {
+            try? FileManager.default.removeItem(at: url)
+        }
         currentSession = nil
     }
 }
@@ -1790,503 +1756,323 @@ struct PerformanceFeedback {
 
 ---
 
-## Part 14: Automatic Clip Recording System (Yellow & Red Movements Only)
+## Part 14: Post-Session Analysis System
 
 ### Overview
 
-The auto-clip system **selectively records and saves short video clips** during the recording session. A clip is only kept when the movement's confidence rating falls into the **Yellow (50–84%)** or **Red (0–49%)** range. Green movements (85–100%) are **discarded immediately** to save storage and avoid unnecessary data.
+After the 2-minute recording ends, the full session video is analyzed using the Apple CoreML Action Classifier. This runs while the "Reviewing…" spinner is displayed in `RecordingView`. The output is a sorted array of `SessionEvent` objects representing only flagged (Yellow/Red) movements — correct and undetected movements are discarded.
 
-### Core Principle: Record-Then-Evaluate
+---
 
-Because the ML inference only completes **at the end** of the 3-second window, the system cannot know in advance whether a clip is worth keeping. The strategy is:
+### Full Pipeline (Step by Step)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  ALWAYS start recording at the beginning of every window    │
-│  → Run inference during the 3 seconds                       │
-│  → At T=3s, evaluate the confidence rating                  │
-│  → IF Yellow or Red → KEEP the clip, save to disk           │
-│  → IF Green         → DISCARD the clip, delete temp file    │
-└─────────────────────────────────────────────────────────────┘
+Recording ends
+  → AVAssetWriter finalizes session video to temp file
+  → PostSessionAnalyzer.analyze(videoURL:) called
+
+Step 1: Frame Extraction
+  → Read video asset frame by frame using AVAssetReader
+  → Extract CVPixelBuffer per frame at native frame rate (30fps)
+
+Step 2: Pose Detection (per frame)
+  → Feed each CVPixelBuffer to VisionProcessor
+  → VNDetectHumanBodyPoseRequest returns VNHumanBodyPoseObservation
+
+Step 3: Sliding Window Inference
+  → Buffer pose observations in a rolling array of 60 frames
+  → When buffer reaches 60 frames: run MLInferenceEngine.predict()
+  → Record: { label, confidence, windowStartTime, windowEndTime }
+  → Slide forward (remove oldest frames by stride amount)
+  → Repeat until end of video
+
+Step 4: Filter
+  → Remove windows with confidence ≤ 0.20 (undetected)
+  → Remove windows with confidence > 0.80 (correct)
+  → Remaining: 0.21–0.50 (Red), 0.51–0.80 (Yellow)
+
+Step 5: Group
+  → Consecutive windows with the same label = one event group
+  → New group starts when: label changes OR time gap between windows exceeds threshold
+
+Step 6: Select Representative
+  → Within each group: pick window with highest confidence
+  → That window's { label, confidence, startTime, endTime } represents the event
+
+Step 7: Apply Padding
+  → paddedStart = max(0, representativeWindow.startTime - clipPaddingSeconds)
+  → paddedEnd   = representativeWindow.endTime + clipPaddingSeconds
+  → clipPaddingSeconds = 0.5 (configurable constant)
+
+Step 8: Build SessionEvent
+  → One SessionEvent per group
+  → Sorted chronologically by elapsedTime
+
+Step 9: Store Result
+  → SessionState.events = sorted SessionEvent array
+  → SessionState.sessionVideoURL = temp video URL
+  → SessionStore.shared.save(sessionState)
+  → Navigate to ResultsView
 ```
 
 ---
 
-### Step-by-Step Flow Per 3-Second Window
+### Confidence Tier Reference
 
-```
-T = 0.0s  ─── Audio cue plays ("JAB!")
-           ─── UI prompt shows current move
-           ─── AVAssetWriter starts recording to temp file
-           ─── Vision + CoreML inference begins on live frames
-
-T = 0.0s
-  to      ─── Frames captured continuously (30 fps)
-T = 3.0s  ─── Pose observations fed to ML model
-           ─── Confidence scores aggregated
-
-T = 3.0s  ─── AVAssetWriter stops, finalizes temp clip file
-           ─── ML returns final predicted label + confidence
-
-           ─── Evaluate rating:
-               ┌─────────────────────────────────────────┐
-               │ confidence >= 85%  → 🟢 GREEN           │
-               │   → Delete temp clip file               │
-               │   → userClipURL = nil                   │
-               ├─────────────────────────────────────────┤
-               │ confidence 50–84%  → 🟡 YELLOW          │
-               │   → Move temp clip to permanent path    │
-               │   → userClipURL = saved clip URL        │
-               ├─────────────────────────────────────────┤
-               │ confidence 0–49%   → 🔴 RED             │
-               │   → Move temp clip to permanent path    │
-               │   → userClipURL = saved clip URL        │
-               └─────────────────────────────────────────┘
-
-           ─── Log MovementEntry with userClipURL (or nil)
-           ─── Advance to next move
-```
+| Range | Label | Color | Action |
+|---|---|---|---|
+| 0.00–0.20 | Undetected | — | Filtered out in Step 4 |
+| 0.21–0.50 | Wrong Move | 🔴 Red | Kept as SessionEvent |
+| 0.51–0.80 | Needs Adjustment | 🟡 Yellow | Kept as SessionEvent |
+| 0.80+ | Correct | 🟢 Green | Filtered out in Step 4 |
 
 ---
 
-### ClipRecorder Service
+### PostSessionAnalyzer — Full Implementation Blueprint
 
 ```swift
+// FILE: Services/PostSessionAnalyzer.swift
+
 import AVFoundation
+import Vision
+import CoreML
 
-class ClipRecorder {
+class PostSessionAnalyzer {
 
-    // MARK: - Properties
+    // MARK: - Configurable Constants
+    let clipPaddingSeconds: Double = 0.5   // Padding added to each side of playback range
+    let windowSize: Int = 60               // Must match Create ML training configuration
+    let strideSize: Int = 15              // How many frames to advance after each prediction
 
-    private var assetWriter: AVAssetWriter?
-    private var videoInput: AVAssetWriterInput?
-    private var adaptor: AVAssetWriterInputPixelBufferAdaptor?
-    private var tempClipURL: URL?
-    private var isRecording: Bool = false
-    private var frameCount: Int64 = 0
-    private let frameRate: Int32 = 30
+    // MARK: - Dependencies
+    private let visionProcessor = VisionProcessor()
+    private let mlEngine = MLInferenceEngine()
 
-    // MARK: - Temp Storage Directory
-
-    private var tempDirectory: URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("ShadowBoxClips", isDirectory: true)
-    }
-
-    // MARK: - Permanent Storage Directory
-
-    private var permanentDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("SessionClips", isDirectory: true)
-    }
-
-    // MARK: - Setup
-
-    func prepareDirectories() {
-        let fm = FileManager.default
-        try? fm.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-        try? fm.createDirectory(at: permanentDirectory, withIntermediateDirectories: true)
-    }
-
-    // MARK: - Start Recording (Called at T=0s of each window)
-
-    func startClip(for move: String, windowIndex: Int) {
-        prepareDirectories()
-
-        let fileName = "temp_\(move.replacingOccurrences(of: " ", with: "_"))_\(windowIndex).mp4"
-        let url = tempDirectory.appendingPathComponent(fileName)
-
-        // Remove any leftover temp file
-        try? FileManager.default.removeItem(at: url)
-        tempClipURL = url
-
-        do {
-            assetWriter = try AVAssetWriter(outputURL: url, fileType: .mp4)
-        } catch {
-            print("ClipRecorder: Failed to create AVAssetWriter — \(error)")
-            return
-        }
-
-        // Video settings (match capture session resolution)
-        let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 1080,
-            AVVideoHeightKey: 1920
-        ]
-
-        videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
-        videoInput?.expectsMediaDataInRealTime = true
-
-        adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: videoInput!,
-            sourcePixelBufferAttributes: nil
-        )
-
-        if let videoInput = videoInput, assetWriter?.canAdd(videoInput) == true {
-            assetWriter?.add(videoInput)
-        }
-
-        assetWriter?.startWriting()
-        assetWriter?.startSession(atSourceTime: .zero)
-        frameCount = 0
-        isRecording = true
-
-        print("ClipRecorder: Started recording clip for \(move)")
-    }
-
-    // MARK: - Append Frame (Called on every camera frame during window)
-
-    func appendFrame(_ pixelBuffer: CVPixelBuffer) {
-        guard isRecording,
-              let videoInput = videoInput,
-              videoInput.isReadyForMoreMediaData,
-              let adaptor = adaptor else { return }
-
-        let presentationTime = CMTime(value: frameCount, timescale: frameRate)
-        adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
-        frameCount += 1
-    }
-
-    // MARK: - Stop and Evaluate (Called at T=3s)
-
-    func stopAndEvaluate(
-        confidence: Float,
-        predictedLabel: String,
-        move: String,
-        windowIndex: Int,
-        completion: @escaping (_ savedClipURL: URL?) -> Void
-    ) {
-        guard isRecording else {
-            completion(nil)
-            return
-        }
-
-        isRecording = false
-        videoInput?.markAsFinished()
-
-        assetWriter?.finishWriting { [weak self] in
-            guard let self = self else { return }
-
-            let confidencePercentage = confidence * 100
-
-            // Special cases: no body detected or no movement — always keep clip as Red
-            let isSpecialCase = (predictedLabel == "no_body_detected" || predictedLabel == "no_movement_detected")
-
-            if !isSpecialCase && confidencePercentage >= 85 {
-                // 🟢 GREEN — Discard clip
-                if let tempURL = self.tempClipURL {
-                    try? FileManager.default.removeItem(at: tempURL)
-                    print("ClipRecorder: Green rating — clip discarded for \(move)")
-                }
-                completion(nil)
-
-            } else {
-                // 🟡 YELLOW, 🔴 RED, ⚠️ NO SCAN, ❌ NO MOVEMENT — Keep clip
-                let ratingTag: String
-                if predictedLabel == "no_body_detected" {
-                    ratingTag = "noscan"
-                } else if predictedLabel == "no_movement_detected" {
-                    ratingTag = "nomovement"
-                } else if confidencePercentage >= 50 {
-                    ratingTag = "yellow"
-                } else {
-                    ratingTag = "red"
-                }
-
-                let savedName = "\(ratingTag)_\(move.replacingOccurrences(of: " ", with: "_"))_\(windowIndex)_\(Int(Date().timeIntervalSince1970)).mp4"
-                let savedURL = self.permanentDirectory.appendingPathComponent(savedName)
-
-                do {
-                    if let tempURL = self.tempClipURL {
-                        try FileManager.default.moveItem(at: tempURL, to: savedURL)
-                        print("ClipRecorder: [\(ratingTag.uppercased())] clip saved: \(savedName)")
-                        completion(savedURL)
-                    } else {
-                        completion(nil)
-                    }
-                } catch {
-                    print("ClipRecorder: Failed to save clip — \(error)")
-                    completion(nil)
-                }
-            }
-        }
-    }
-
-    // MARK: - Cleanup (Called when session ends or app clears memory)
-
-    func deleteAllClips() {
-        let fm = FileManager.default
-
-        // Clear temp directory
-        if let tempFiles = try? fm.contentsOfDirectory(at: tempDirectory, includingPropertiesForKeys: nil) {
-            tempFiles.forEach { try? fm.removeItem(at: $0) }
-        }
-
-        // Clear permanent directory
-        if let savedFiles = try? fm.contentsOfDirectory(at: permanentDirectory, includingPropertiesForKeys: nil) {
-            savedFiles.forEach { try? fm.removeItem(at: $0) }
-        }
-
-        print("ClipRecorder: All clips deleted from storage")
-    }
-}
-```
-
----
-
-### Integration Into SessionManager
-
-The `ClipRecorder` is wired directly into the 3-second move window loop inside `SessionManager`:
-
-```swift
-class SessionManager: ObservableObject {
-
-    private let clipRecorder = ClipRecorder()
-
-    // Called at T=0s — beginning of each move window
-    func beginMoveWindow(move: String, windowIndex: Int) {
-        // 1. Play audio cue
-        AudioCuePlayer.shared.playAudioCue(for: move)
-
-        // 2. Update UI
-        currentMove = move
-
-        // 3. Start clip recording for this window
-        clipRecorder.startClip(for: move, windowIndex: windowIndex)
-
-        // 4. Start 3-second timer
-        startMoveTimer(move: move, windowIndex: windowIndex)
-    }
-
-    // Called on every camera frame — during the 3-second window
-    func onCameraFrame(_ pixelBuffer: CVPixelBuffer) {
-        // 1. Feed frame to Vision + CoreML
-        visionProcessor.detectBodyPose(from: pixelBuffer) { observations in
-            let result = self.mlEngine.predictMove(from: observations)
-            self.currentFramePredictions.append(result)
-        }
-
-        // 2. Feed frame to ClipRecorder simultaneously
-        clipRecorder.appendFrame(pixelBuffer)
-    }
-
-    // Called at T=3s — end of each move window
-    func endMoveWindow(move: String, windowIndex: Int) {
-        // 1. Aggregate ML predictions from this window
-        let finalConfidence = aggregatePredictions(currentFramePredictions)
-        let finalLabel = dominantLabel(currentFramePredictions)
-        currentFramePredictions = []
-
-        // 2. Stop recording and evaluate rating
-        clipRecorder.stopAndEvaluate(
-            confidence: finalConfidence,
-            move: move,
-            windowIndex: windowIndex
-        ) { savedClipURL in
-
-            // 3. Build SessionEvent and append to session
-            let event = SessionEvent(
-                id: UUID(),
-                timestamp: Date(),
-                elapsedTime: self.elapsedTime,
-                expectedMove: self.currentExpectedMove,
-                predictedLabel: finalLabel,
-                confidence: finalConfidence,
-                isAccurate: (finalLabel == self.currentExpectedMove.id) && (finalConfidence >= 0.85),
-                clipURL: savedClipURL
-            )
+    // MARK: - Main Entry Point
+    func analyze(videoURL: URL, completion: @escaping ([SessionEvent]) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            // TODO: Implement full pipeline steps 1–8
+            // Step 1: Extract frames from videoURL using AVAssetReader
+            // Step 2: Run VisionProcessor on each frame
+            // Step 3: Buffer poses into 60-frame windows, run MLInferenceEngine
+            // Step 4: Filter by confidence tier
+            // Step 5: Group consecutive same-label windows
+            // Step 6: Select representative (highest confidence) per group
+            // Step 7: Apply clipPaddingSeconds to start/end
+            // Step 8: Build and sort SessionEvent array
 
             DispatchQueue.main.async {
-                self.events.append(event)
+                completion([]) // Replace with real events
             }
         }
-
-        // 4. Advance to next move
-        advanceToNextMove()
     }
-}
-```
 
----
+    // MARK: - Step 5: Group consecutive windows
+    func groupWindows(_ predictions: [WindowPrediction]) -> [[WindowPrediction]] {
+        var groups: [[WindowPrediction]] = []
+        var currentGroup: [WindowPrediction] = []
 
-### Decision Logic Summary
-
-```swift
-// At T=3s, after inference completes:
-
-func shouldKeepClip(confidence: Float) -> Bool {
-    let percentage = confidence * 100
-    return percentage < 85  // Keep Yellow (50-84%) and Red (0-49%) only
-}
-
-// Green (85-100%) → discard → userClipURL = nil
-// Yellow (50-84%) → keep   → userClipURL = permanent file URL
-// Red (0-49%)     → keep   → userClipURL = permanent file URL
-```
-
----
-
-### File Naming Convention
-
-Saved clips follow a structured naming pattern for easy debugging:
-
-```
-red_jab_3_1746278400.mp4
- │    │   │      │
- │    │   │      └── Unix timestamp (unique per clip)
- │    │   └───────── Window index (3rd move in session)
- │    └───────────── Move name
- └────────────────── Performance rating (yellow / red)
-```
-
----
-
-### Clip Playback in Movement Detail Modal
-
-When the user taps a Yellow or Red timestamp on the Result screen, the modal checks `userClipURL`:
-
-```swift
-struct MovementDetailModal: View {
-    let movement: MovementEntry
-
-    var body: some View {
-        VStack(spacing: 20) {
-
-            // Section 1: User's performance clip
-            if let clipURL = movement.userClipURL {
-                // Clip exists (Yellow or Red movement)
-                VideoPlayer(player: AVPlayer(url: clipURL))
-                    .frame(height: 300)
-                    .cornerRadius(12)
-                    .overlay(
-                        Text("Your Performance")
-                            .font(.caption)
-                            .padding(6)
-                            .background(Color.black.opacity(0.5))
-                            .foregroundColor(.white)
-                            .cornerRadius(6),
-                        alignment: .topLeading
-                    )
+        for prediction in predictions {
+            if currentGroup.isEmpty {
+                currentGroup.append(prediction)
+            } else if let last = currentGroup.last,
+                      last.label == prediction.label,
+                      (prediction.startTime - last.endTime) < 0.5 {
+                // Same label and no significant gap → same group
+                currentGroup.append(prediction)
             } else {
-                // No clip (Green movement — shouldn't normally open modal)
-                Text("No clip available — movement was rated Excellent.")
-                    .foregroundColor(.gray)
-                    .italic()
+                // New group starts
+                groups.append(currentGroup)
+                currentGroup = [prediction]
             }
-
-            // Section 2: Developer suggestion
-            Text(moveSuggestions[movement.expectedMove.lowercased()] ?? "")
-                .padding()
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(10)
-
-            // Section 3: Reference video (PLACEHOLDER)
-            // TODO: Replace with actual reference video asset
-            Text("Reference Video Placeholder — \(movement.expectedMove)")
-                .foregroundColor(.gray)
-                .italic()
         }
-        .padding()
+        if !currentGroup.isEmpty { groups.append(currentGroup) }
+        return groups
     }
+
+    // MARK: - Step 6: Select representative window
+    func selectRepresentative(from group: [WindowPrediction]) -> WindowPrediction {
+        return group.max(by: { $0.confidence < $1.confidence })!
+    }
+
+    // MARK: - Step 7+8: Build SessionEvent with padding
+    func buildEvent(from window: WindowPrediction, videoDuration: Double) -> SessionEvent {
+        let paddedStart = max(0, window.startTime - clipPaddingSeconds)
+        let paddedEnd   = min(videoDuration, window.endTime + clipPaddingSeconds)
+
+        return SessionEvent(
+            id: UUID(),
+            timestamp: Date(),
+            elapsedTime: window.startTime,
+            predictedLabel: window.label,
+            confidence: window.confidence,
+            playbackStartTime: paddedStart,
+            playbackEndTime: paddedEnd
+        )
+    }
+}
+
+// MARK: - Supporting Type
+struct WindowPrediction {
+    let label: String        // e.g. "jab"
+    let confidence: Float    // 0.0–1.0
+    let startTime: Double    // Seconds from video start (first frame of window)
+    let endTime: Double      // Seconds from video start (last frame of window)
 }
 ```
 
 ---
 
-### Memory & Storage Management
+### VideoRangePlayer — Full Implementation Blueprint
 
-### Memory & Storage Management
+```swift
+// FILE: Services/VideoRangePlayer.swift
 
-#### During Session
-- **Temp directory:** Stores the currently recording clip (overwritten each window)
-- **Permanent directory:** Accumulates Yellow/Red clips throughout the session
-- **Green windows:** Temp file deleted immediately, zero storage cost
+import AVFoundation
+import AVKit
+import Combine
 
-#### Clip Lifecycle (Clarified v3.0)
+class VideoRangePlayer: ObservableObject {
+
+    private(set) var player: AVPlayer = AVPlayer()
+    private var endTimeObserver: Any?
+
+    // MARK: - Setup (called once when Results screen appears)
+    func configure(videoURL: URL) {
+        let item = AVPlayerItem(url: videoURL)
+        player.replaceCurrentItem(with: item)
+    }
+
+    // MARK: - Ranged Playback
+    // No clip extraction — seeks main video to start, stops at end
+    func play(from startSeconds: Double, to endSeconds: Double) {
+        guard player.currentItem != nil else { return }
+
+        let startTime = CMTime(seconds: startSeconds, preferredTimescale: 600)
+        let endTime   = CMTime(seconds: endSeconds,   preferredTimescale: 600)
+
+        // Set playback end boundary
+        player.currentItem?.forwardPlaybackEndTime = endTime
+
+        // Seek to start then play
+        player.seek(to: startTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            self?.player.play()
+        }
+    }
+
+    func pause() { player.pause() }
+
+    func reset() {
+        player.pause()
+        player.currentItem?.forwardPlaybackEndTime = .invalid
+    }
+}
+```
+
+**Usage in ResultsView event modal:**
+```swift
+// One VideoRangePlayer instance shared across all event modals
+// Configured once when ResultsView appears with session video URL
+// When user taps a SessionEvent:
+
+videoRangePlayer.play(
+    from: event.playbackStartTime,   // e.g. 3.7s (padded)
+    to:   event.playbackEndTime      // e.g. 6.2s (padded)
+)
+
+// Display using AVKit's VideoPlayer
+VideoPlayer(player: videoRangePlayer.player)
+    .frame(height: 300)
+    .cornerRadius(12)
+```
+
+---
+
+### Main Video Storage & Lifecycle
 
 ```
 Session starts
-    → Clips accumulate in permanent directory (Yellow/Red only)
+  → AVAssetWriter begins writing to temp directory
+  → File: ShadowBox_session_{UUID}.mp4
 
-Session ends → Result screen shows
-    → Clips remain accessible for modal playback
+Recording ends
+  → AVAssetWriter.finishWriting() called
+  → PostSessionAnalyzer runs on finalized file
+  → sessionVideoURL stored in SessionState
 
-User leaves Result screen (back navigation / new session)
-    → ALL clips deleted from permanent directory
-    → SessionStore cleared
+Results screen shown
+  → VideoRangePlayer.configure(videoURL: sessionVideoURL)
+  → All ranged playback uses this single file
 
-App is closed / terminated
-    → iOS clears temp directory automatically
-    → Permanent directory is cleared on next app launch (startup cleanup)
+User taps Save button (optional)
+  → Copy session video to Photo Library via PHPhotoLibrary
+  → Original temp file remains until navigation away
+
+User leaves Results screen
+  → SessionStore.shared.clear() called
+  → Temp video file deleted
+  → VideoRangePlayer reset
+
+App launch (startup cleanup)
+  → Scan temp directory for leftover session videos
+  → Delete any found (from previous crash or force-quit)
 ```
 
-**Startup Cleanup (run once on app launch):**
+**Startup Cleanup:**
 ```swift
-class AppDelegate {
-    func application(_ application: UIApplication,
-                     didFinishLaunchingWithOptions ...) -> Bool {
-        // Clean up any leftover clips from previous session
-        ClipRecorder.shared.deleteAllClips()
-        return true
+// Run on app launch before any UI appears
+func cleanupLeftoverSessionVideos() {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ShadowBoxSessions", isDirectory: true)
+    if let files = try? FileManager.default.contentsOfDirectory(
+        at: tempDir, includingPropertiesForKeys: nil) {
+        files.forEach { try? FileManager.default.removeItem(at: $0) }
     }
 }
 ```
 
-**On Result Screen Dismiss:**
+**On Results Screen Dismiss:**
 ```swift
-// Called when user navigates away from Result screen
 .onDisappear {
-    ClipRecorder.shared.deleteAllClips()
-    SessionStore.shared.clearCurrentSession()
-}
-```
-
-#### Estimated Storage per Session
-| Rating | Clip Length | Approx Size | Kept? |
-|---|---|---|---|
-| 🟢 Green | 3 seconds | ~5MB | ❌ Deleted immediately |
-| 🟡 Yellow | 3 seconds | ~5MB | ✅ Until Result dismissed |
-| 🔴 Red | 3 seconds | ~5MB | ✅ Until Result dismissed |
-| ⚠️ No Detection | 3 seconds | ~5MB | ✅ Until Result dismissed |
-
-In a 2-minute session (~40 windows), worst case all Yellow/Red = ~200MB. Realistically much less.
-
----
-
-### Updated Data Model
-
-```swift
-// Extend SessionEvent in Models.swift — do not create a new file
-
-extension SessionEvent {
-    // Convenience check used by ClipRecorder and modal UI
-    var hasClip: Bool { clipURL != nil }
-
-    // predictedLabel special values:
-    // "no_body_detected"     → body lost mid-session
-    // "no_movement_detected" → model returned unknown / no frames
-    // "jab", "straight", "left hook", etc. → valid ML output
+    videoRangePlayer.reset()
+    SessionStore.shared.clear()  // Also deletes temp video file
 }
 ```
 
 ---
 
-### Updated Implementation Checklist (Auto-Clip)
+### Estimated Processing Time
 
-- [ ] Create `ClipRecorder` service class
-- [ ] Implement `startClip()` — begins `AVAssetWriter` at T=0s
-- [ ] Implement `appendFrame()` — feeds pixel buffers during window
-- [ ] Implement `stopAndEvaluate()` — keeps or discards based on rating
-- [ ] Wire `ClipRecorder` into `SessionManager.beginMoveWindow()`
-- [ ] Wire `ClipRecorder` into `SessionManager.onCameraFrame()`
-- [ ] Wire `ClipRecorder` into `SessionManager.endMoveWindow()`
-- [ ] Implement `deleteAllClips()` cleanup on new session start
-- [ ] Update `MovementEntry` with `hasClip` computed property
-- [ ] Implement `MovementDetailModal` clip playback with `AVPlayer`
-- [ ] Test: Green movement → temp file deleted, `userClipURL` = nil
-- [ ] Test: Yellow movement → clip saved, `userClipURL` = valid URL
-- [ ] Test: Red movement → clip saved, `userClipURL` = valid URL
-- [ ] Test: Modal playback of saved clip
+| Session Length | Frames | Approx Analysis Time |
+|---|---|---|
+| 2 minutes (full) | ~3,600 frames | 5–15 seconds (device dependent) |
+| 1 minute (early stop) | ~1,800 frames | 3–8 seconds |
+
+Analysis runs on a background thread (`DispatchQueue.global(qos: .userInitiated)`) so the "Reviewing…" UI remains responsive.
+
+---
+
+### Updated Implementation Checklist
+
+- [ ] Implement `SessionManager` full video recording via `AVAssetWriter`
+- [ ] Implement `PostSessionAnalyzer.analyze(videoURL:)` pipeline
+- [ ] Implement frame extraction from video using `AVAssetReader`
+- [ ] Implement 60-frame sliding window buffer with configurable stride
+- [ ] Implement `groupWindows()` — consecutive same-label grouping
+- [ ] Implement `selectRepresentative()` — highest confidence per group
+- [ ] Implement `buildEvent()` — padding + `SessionEvent` construction
+- [ ] Implement `VideoRangePlayer.configure()` and `play(from:to:)`
+- [ ] Wire `VideoRangePlayer` into ResultsView event modal
+- [ ] Implement main video Save button → Photo Library copy
+- [ ] Implement startup cleanup of leftover temp session videos
+- [ ] Implement `SessionStore.clear()` with temp file deletion
+- [ ] Test: correct move (>80%) → not in results
+- [ ] Test: undetected (≤20%) → not in results
+- [ ] Test: yellow (51–80%) → appears in results, ranged playback works
+- [ ] Test: red (21–50%) → appears in results, ranged playback works
+- [ ] Test: overlapping windows on same move → grouped into one event
+- [ ] Test: highest confidence window selected as representative
+- [ ] Test: padding applied correctly at video boundaries (start/end)
 
 ---
 
@@ -2301,6 +2087,6 @@ This document provides a **complete blueprint** for the ShadowBox backend. All p
 
 ---
 
-**Document Version:** 5.1 — Option B Fixes Applied (Model Names, Threshold, Duplicates)
-**Last Updated:** May 3, 2026
+**Document Version:** 6.0 — Post-Recording Analysis Architecture + Ranged Playback
+**Last Updated:** May 4, 2026
 **Prepared By:** 50-Year Veteran iOS Developer & AI Engineer
