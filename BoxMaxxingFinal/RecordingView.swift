@@ -67,11 +67,16 @@ struct RecordingView: View {
         .foregroundColor(.white)
         .preferredColorScheme(.dark)
         .onDisappear { cleanup() }
-        // Auto-navigate when session manager finalizes (timer expired or confirmed stop)
-        .onChange(of: sessionManager.isRecording) { oldValue, newValue in
+        // Switch to ReviewingOverlay as soon as recording stops
+        .onChange(of: sessionManager.isRecording) { _, newValue in
             if !newValue && phase == .recording {
                 phase = .done
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { onFinish() }
+            }
+        }
+        // Navigate to Results only once PostSessionAnalyzer finishes (may take 5–15s)
+        .onChange(of: sessionManager.isAnalyzing) { _, analyzing in
+            if !analyzing && phase == .done {
+                onFinish()
             }
         }
         // Stop confirmation dialog — timer keeps running in background while open
@@ -156,7 +161,7 @@ final class CameraView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate {
               let input = try? AVCaptureDeviceInput(device: device) else { return }
         session.addInput(input)
 
-        // Video output for ML inference and clip recording
+        // Video output for ML inference (live punch chips in HUD)
         let videoOutput = AVCaptureVideoDataOutput()
         videoOutput.videoSettings = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
@@ -164,6 +169,10 @@ final class CameraView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate {
         videoOutput.setSampleBufferDelegate(self, queue: frameQueue)
         videoOutput.alwaysDiscardsLateVideoFrames = true
         if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
+
+        // Movie file output for full-session recording (added once, used by SessionRecorder)
+        let movieOutput = SessionRecorder.shared.movieFileOutput
+        if session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
 
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
