@@ -35,13 +35,13 @@ struct MenuView: View {
             HStack(spacing: 5) {
                 Image(systemName: "clock")
                     .font(.system(size: 12))
-                    .foregroundColor(Color(UIColor.secondaryLabel))
+                    .foregroundColor(Color(UIColor.label))
                 Text("Session duration is 2 minutes")
                     .font(.system(size: 13))
-                    .foregroundColor(Color(UIColor.secondaryLabel))
+                    .foregroundColor(Color(UIColor.label))
                     .tracking(-0.08)
             }
-            .padding(.top, 10)
+            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
