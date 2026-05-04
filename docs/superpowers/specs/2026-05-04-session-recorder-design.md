@@ -119,7 +119,7 @@ struct WindowPrediction {
 paddedStart = max(0, window.startTime - clipPaddingSeconds)
 paddedEnd   = min(videoDuration, window.endTime + clipPaddingSeconds)
 ```
-These are stored on `SessionEvent` as context for future use but VideoPlayerView currently seeks to `event.time` (unpadded start) for simplicity.
+Padding is computed inside `buildEvent` but the padded values are not stored on `SessionEvent` — `Models.swift` is not modified and has no `playbackStartTime`/`playbackEndTime` fields. `VideoPlayerView` seeks to `event.time` (the representative window's unpadded start). Padding can be introduced later by extending `SessionEvent` in `Models.swift` when the full pipeline is wired.
 
 ---
 
@@ -158,6 +158,18 @@ The force-unwrap is safe — this code is inside the `else` branch that already 
 
 **Additions:**
 - `@Published var isAnalyzing = false` — drives "Reviewing…" spinner duration in RecordingView
+
+**startSession change:** Conditionally skips `SessionRecorder.shared.startRecording()` when `debugVideoOverride` is set — no live recording is started when testing with a sample file:
+```swift
+func startSession() {
+    // ...existing setup...
+    if SessionRecorder.shared.debugVideoOverride == nil {
+        SessionRecorder.shared.startRecording()
+    }
+    startSessionTimer()
+    beginMoveWindow()
+}
+```
 
 **Removals:**
 - All `ClipRecorder.shared.*` calls (3 sites: appendFrame, startClip, stopAndEvaluate)
