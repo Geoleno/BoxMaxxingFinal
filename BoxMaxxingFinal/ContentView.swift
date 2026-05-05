@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var route: AppRoute = .menu
     @State private var sessionState = SessionState()
     @StateObject private var sessionManager = SessionManager()
+    @ObservedObject private var store = SessionStore.shared
 
     var body: some View {
         ZStack {
@@ -48,7 +49,7 @@ struct ContentView: View {
             case .results:
                 ResultsView(
                     state: sessionState,
-                    events: SessionStore.shared.currentEvents,
+                    events: store.currentEvents,
                     onBack: {
                         SessionRecorder.shared.deleteSessionFile()
                         SessionStore.shared.clear()

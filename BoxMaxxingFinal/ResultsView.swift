@@ -82,7 +82,7 @@ struct ResultsView: View {
         .background(Color(UIColor.systemBackground))
         .ignoresSafeArea(edges: .bottom)
         .sheet(item: $activeEvent) { event in
-            DetailSheetView(event: event)
+            DetailSheetView(eventId: event.id)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -291,13 +291,19 @@ private struct LegendDot: View {
 // MARK: - Detail Sheet
 
 struct DetailSheetView: View {
-    let event: SessionEvent
+    let eventId: String
+    @ObservedObject private var store = SessionStore.shared
     @Environment(\.dismiss) private var dismiss
     @State private var clipPlaying = false
 
-    private var accent: Color { event.movementState.color }
+    private var event: SessionEvent? {
+        store.currentEvents.first { $0.id == eventId }
+    }
+
+    private var accent: Color { event?.movementState.color ?? Color(UIColor.systemGray) }
 
     var body: some View {
+        if let event {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
 
@@ -428,6 +434,7 @@ struct DetailSheetView: View {
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 40)
+        }
         }
     }
 
