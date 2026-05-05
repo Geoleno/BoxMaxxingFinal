@@ -178,7 +178,10 @@ final class SessionManager: ObservableObject {
             let skeleton = self.visionProcessor.extractSkeleton(from: observations)
             DispatchQueue.main.async {
                 guard self.isRecording else { return }
-                self.videoBufferSize = CGSize(width: bufferWidth, height: bufferHeight)
+                let newSize = CGSize(width: bufferWidth, height: bufferHeight)
+                if self.videoBufferSize.width != newSize.width || self.videoBufferSize.height != newSize.height {
+                    self.videoBufferSize = newSize
+                }
                 self.currentSkeleton = skeleton
                 self.currentFramePredictions.append(prediction)
                 self.updateLivePunchIfNeeded(prediction: prediction)
