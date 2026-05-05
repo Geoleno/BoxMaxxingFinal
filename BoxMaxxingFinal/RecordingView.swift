@@ -175,6 +175,13 @@ final class CameraView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate {
         videoOutput.alwaysDiscardsLateVideoFrames = true
         if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
 
+        // Rotate pixel buffers to portrait so Vision receives portrait-space coordinates.
+        // Without this, the sensor delivers landscape buffers and joint x/y axes are swapped.
+        if let connection = videoOutput.connection(with: .video),
+           connection.isVideoOrientationSupported {
+            connection.videoOrientation = .portrait
+        }
+
         // Movie file output for full-session recording (added once, used by SessionRecorder)
         let movieOutput = SessionRecorder.shared.movieFileOutput
         if session.canAddOutput(movieOutput) { session.addOutput(movieOutput) }
