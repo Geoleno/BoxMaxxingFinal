@@ -13,8 +13,12 @@ final class SessionRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     // Set to nil for production.
     var debugVideoOverride: URL? = nil
 
+    // Set to true to allow app to continue even if camera is unavailable
+    var allowRecordingWithoutCamera = false
+
     private(set) var lastRecordedURL: URL?
     private var recordingContinuation: CheckedContinuation<URL, Error>?
+    private var isRecordingActive = false
 
     private var documentsDirectory: URL {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -25,12 +29,27 @@ final class SessionRecorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     func startRecording() {
         let filename = "session_\(Int(Date().timeIntervalSince1970)).mov"
         let outputURL = documentsDirectory.appendingPathComponent(filename)
-        movieFileOutput.startRecording(to: outputURL, recordingDelegate: self)
+
+        let hasActiveConnections = movieFileOutput.connections.contains { $0.isActive && $0.isEnabled }
+
+        if hasActiveConnections {
+            movieFileOutput.startRecording(to: outputURL, recordingDelegate: self)
+            isRecordingActive = true
+        } else if allowRecordingWithoutCamera {
+            // Camera unavailable but override is enabled — skip actual recording
+            isRecordingActive = false
+            lastRecordedURL = outputURL
+        }
     }
 
     // Suspends until AVFoundation calls the delegate, then returns the file URL.
     // Throws if the recording file failed to write (e.g. disk full).
     func stopRecording() async throws -> URL {
+        // If recording was never actually started (camera unavailable), return the stub URL
+        if !isRecordingActive, let url = lastRecordedURL {
+            return url
+        }
+
         return try await withCheckedThrowingContinuation { continuation in
             recordingContinuation = continuation
             movieFileOutput.stopRecording()

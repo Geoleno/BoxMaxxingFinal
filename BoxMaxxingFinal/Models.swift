@@ -13,6 +13,13 @@ struct Move: Identifiable, Equatable, Hashable {
     enum MoveSide { case left, right }
 }
 
+// MARK: - Frame Prediction
+
+struct FramePrediction {
+    let label: String       // move id or "no_body_detected" / "no_movement_detected"
+    let confidence: Float   // 0.0 - 1.0
+}
+
 // MARK: - Combo
 
 struct Combo: Identifiable {
