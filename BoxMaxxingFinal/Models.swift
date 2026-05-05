@@ -1,4 +1,5 @@
 import Foundation
+import Vision
 
 // MARK: - Move
 
@@ -81,6 +82,15 @@ struct LivePunch: Identifiable {
     let move: Move
     let confidence: Double
     let timestamp: Date
+}
+
+// MARK: - Skeleton Frame (for live overlay)
+
+struct SkeletonFrame {
+    /// Normalized joint positions (x: 0–1, y: 0–1, Vision origin: bottom-left)
+    let joints: [VNHumanBodyPoseObservation.JointName: CGPoint]
+    /// Per-joint detection confidence (0.0–1.0)
+    let confidence: [VNHumanBodyPoseObservation.JointName: Float]
 }
 
 // MARK: - Session State
