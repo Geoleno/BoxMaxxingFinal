@@ -65,6 +65,8 @@ struct RecordingView: View {
                     total: total,
                     progress: progress,
                     livePunches: sessionManager.livePunches,
+                    currentTargetMove: sessionManager.currentTargetMove,
+                    lastWindowResult: sessionManager.lastWindowResult,
                     onStop: { sessionManager.requestStop() },
                     onCancel: onCancel
                 )
@@ -358,6 +360,8 @@ private struct RecordingHUD: View {
     let total: Int
     let progress: Double
     let livePunches: [LivePunch]
+    let currentTargetMove: Move?
+    let lastWindowResult: WindowResult?
     let onStop: () -> Void
     let onCancel: () -> Void
 
@@ -416,7 +420,13 @@ private struct RecordingHUD: View {
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 16)
             .animation(.easeOut(duration: 0.3), value: livePunches.map(\.id))
-            .padding(.bottom, 16)
+            .padding(.bottom, 10)
+
+            // Current combo target card
+            CurrentMoveCard(targetMove: currentTargetMove, result: lastWindowResult)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
 
             // Progress bar
             GeometryReader { geo in
@@ -478,6 +488,57 @@ private struct LivePunchChip: View {
         .padding(.vertical, 8)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .opacity(faded ? 0.6 : 1.0)
+    }
+}
+
+private struct CurrentMoveCard: View {
+    let targetMove: Move?
+    let result: WindowResult?
+
+    var body: some View {
+        Group {
+            if let result {
+                HStack(spacing: 10) {
+                    Image(systemName: result.matched ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(result.matched ? Color(UIColor.systemGreen) : Color(UIColor.systemRed))
+                        .font(.system(size: 18, weight: .semibold))
+                    Text(result.matched ? "Nice!" : "Missed")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Text("\(Int(result.confidence * 100))%")
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .monospacedDigit()
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(result.matched
+                              ? Color(UIColor.systemGreen).opacity(0.25)
+                              : Color(UIColor.systemRed).opacity(0.20))
+                )
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            } else if let move = targetMove {
+                HStack(spacing: 10) {
+                    MoveGlyphView(kind: move.kind, side: move.side, color: .white, size: 18)
+                    Text(move.name)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white)
+                    Spacer()
+                    Text("NOW")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.5)
+                        .foregroundColor(.white.opacity(0.5))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .animation(.easeOut(duration: 0.3), value: result?.matched)
+        .animation(.easeOut(duration: 0.3), value: targetMove?.id)
     }
 }
 
