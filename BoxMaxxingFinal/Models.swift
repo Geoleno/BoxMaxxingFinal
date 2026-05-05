@@ -84,6 +84,15 @@ struct LivePunch: Identifiable {
     let timestamp: Date
 }
 
+// MARK: - Window Result (for live HUD feedback)
+
+struct WindowResult {
+    let expectedMoveId: String
+    let detectedMoveId: String?   // nil when no valid move detected
+    let confidence: Double         // 0.0–1.0
+    let matched: Bool              // detectedMoveId == expectedMoveId
+}
+
 // MARK: - Skeleton Frame (for live overlay)
 
 struct SkeletonFrame {
