@@ -33,6 +33,12 @@ final class SessionManager: ObservableObject {
     private var globalWindowIndex = 0
     private var currentFramePredictions: [FramePrediction] = []
 
+    // MARK: - HUD Stabilization
+
+    private let stabilizationDuration: TimeInterval = 0.4
+    private var stabilizationTimer: Timer?
+    private var pendingPunch: LivePunch?
+
     // MARK: - Services
 
     private let visionProcessor = VisionProcessor()
@@ -93,8 +99,10 @@ final class SessionManager: ObservableObject {
     func finalizeSession() {
         guard isRecording else { return }
 
-        sessionTimer?.invalidate(); sessionTimer = nil
-        windowTimer?.invalidate();  windowTimer = nil
+        sessionTimer?.invalidate();       sessionTimer = nil
+        windowTimer?.invalidate();        windowTimer = nil
+        stabilizationTimer?.invalidate(); stabilizationTimer = nil
+        pendingPunch = nil
 
         isRecording = false     // RecordingView: phase switches to .done (ReviewingOverlay)
         isAnalyzing = true
@@ -185,9 +193,17 @@ final class SessionManager: ObservableObject {
         guard let move = findMove(prediction.label),
               prediction.confidence > 0.5 else { return }
 
-        let punch = LivePunch(move: move, confidence: Double(prediction.confidence), timestamp: Date())
-        withAnimation(.easeOut(duration: 0.3)) {
-            livePunches = [punch] + Array(livePunches.prefix(1))
+        // Always keep the latest candidate ready
+        pendingPunch = LivePunch(move: move, confidence: Double(prediction.confidence), timestamp: Date())
+
+        // Reset the timer on every new detection — only commit once detections stop changing
+        stabilizationTimer?.invalidate()
+        stabilizationTimer = Timer.scheduledTimer(withTimeInterval: stabilizationDuration, repeats: false) { [weak self] _ in
+            guard let self, let punch = self.pendingPunch else { return }
+            withAnimation(.easeOut(duration: 0.3)) {
+                self.livePunches = [punch] + Array(self.livePunches.prefix(1))
+            }
+            self.pendingPunch = nil
         }
     }
 }
