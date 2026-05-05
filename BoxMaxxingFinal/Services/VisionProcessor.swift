@@ -29,35 +29,20 @@ final class VisionProcessor {
         return true
     }
 
-    /// Extracts normalized 2D joint positions from the first body pose observation.
-    /// Returns nil if no observation exists or all joints fall below the confidence threshold.
+    /// Extracts normalized 2D joint positions from the first body pose observation (Vision sorts by confidence desc,
+    /// so index 0 is the best detection when multiple people are in frame).
+    /// Joints with confidence ≤ 0.3 are excluded from the returned frame; if all joints
+    /// fall below this threshold, returns nil.
     func extractSkeleton(from observations: [VNHumanBodyPoseObservation]?) -> SkeletonFrame? {
-        guard let observation = observations?.first else { return nil }
+        guard let observation = observations?.first,
+              let allPoints = try? observation.recognizedPoints(.all) else { return nil }
 
-        let allJointNames: [VNHumanBodyPoseObservation.JointName] = [
-            .nose, .neck,
-            .leftShoulder, .rightShoulder,
-            .leftElbow, .rightElbow,
-            .leftWrist, .rightWrist,
-            .leftHip, .rightHip,
-            .leftKnee, .rightKnee,
-            .leftAnkle, .rightAnkle,
-            .leftEye, .rightEye,
-            .leftEar, .rightEar,
-            .root
-        ]
+        let filtered = allPoints.filter { $0.value.confidence > 0.3 }
+        guard !filtered.isEmpty else { return nil }
 
-        var joints: [VNHumanBodyPoseObservation.JointName: CGPoint] = [:]
-        var confidence: [VNHumanBodyPoseObservation.JointName: Float] = [:]
-
-        for name in allJointNames {
-            guard let point = try? observation.recognizedPoint(name),
-                  point.confidence > 0.3 else { continue }
-            joints[name] = CGPoint(x: point.location.x, y: point.location.y)
-            confidence[name] = point.confidence
-        }
-
-        guard !joints.isEmpty else { return nil }
-        return SkeletonFrame(joints: joints, confidence: confidence)
+        return SkeletonFrame(
+            joints: filtered.mapValues { $0.location },
+            confidence: filtered.mapValues { $0.confidence }
+        )
     }
 }
