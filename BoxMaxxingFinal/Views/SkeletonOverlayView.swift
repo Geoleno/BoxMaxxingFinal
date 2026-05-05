@@ -5,11 +5,9 @@ struct SkeletonOverlayView: View {
     let skeleton: SkeletonFrame?
 
     var body: some View {
-        GeometryReader { geo in
-            Canvas { context, size in
-                guard let skeleton else { return }
-                drawSkeleton(context: context, size: size, skeleton: skeleton)
-            }
+        Canvas { context, size in
+            guard let skeleton else { return }
+            drawSkeleton(context: context, size: size, skeleton: skeleton)
         }
         .blendMode(.screen)
         .allowsHitTesting(false)
