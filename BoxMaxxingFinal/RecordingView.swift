@@ -31,8 +31,11 @@ struct RecordingView: View {
             .ignoresSafeArea()
 
             if phase == .recording {
-                SkeletonOverlayView(skeleton: sessionManager.currentSkeleton)
-                    .ignoresSafeArea()
+                SkeletonOverlayView(
+                    skeleton: sessionManager.currentSkeleton,
+                    bufferSize: sessionManager.videoBufferSize
+                )
+                .ignoresSafeArea()
             }
 
             // Vignette overlay

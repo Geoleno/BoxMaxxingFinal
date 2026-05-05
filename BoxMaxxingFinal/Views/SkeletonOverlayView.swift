@@ -3,6 +3,7 @@ import Vision
 
 struct SkeletonOverlayView: View {
     let skeleton: SkeletonFrame?
+    let bufferSize: CGSize
 
     var body: some View {
         Canvas { context, size in
@@ -15,11 +16,35 @@ struct SkeletonOverlayView: View {
 
     // MARK: - Coordinate Conversion
 
-    /// Converts Vision normalized coordinates (origin bottom-left) to screen coordinates (origin top-left).
-    /// Converts Vision normalized coordinates to screen coordinates.
-    /// X is mirrored to match AVCaptureVideoPreviewLayer's front-camera horizontal flip.
-    static func toScreen(_ point: CGPoint, size: CGSize) -> CGPoint {
-        CGPoint(x: (1 - point.x) * size.width, y: (1 - point.y) * size.height)
+    /// Maps a Vision normalized joint position to a screen point.
+    ///
+    /// Vision origin is bottom-left (y increases upward). The front-camera preview is
+    /// horizontally mirrored. `resizeAspectFill` scales the buffer to fill the canvas,
+    /// cropping the overflowing edges — this function compensates for that crop.
+    ///
+    /// - Parameters:
+    ///   - point: Normalized Vision joint position (x,y ∈ [0,1], origin bottom-left).
+    ///   - canvasSize: Size of the SwiftUI Canvas (== screen size with ignoresSafeArea).
+    ///   - bufferSize: Actual pixel buffer dimensions as delivered by AVCaptureVideoDataOutput
+    ///                 after portrait rotation (width = shorter dimension, height = taller).
+    static func toScreen(_ point: CGPoint, canvasSize: CGSize, bufferSize: CGSize) -> CGPoint {
+        // resizeAspectFill: scale so both buffer dimensions are >= canvas dimensions.
+        let scaleX = canvasSize.width / bufferSize.width
+        let scaleY = canvasSize.height / bufferSize.height
+        let scale = max(scaleX, scaleY)
+
+        // Fraction of the buffer that is cropped from each side.
+        let cropX = max(0, (bufferSize.width * scale - canvasSize.width) / 2 / (bufferSize.width * scale))
+        let cropY = max(0, (bufferSize.height * scale - canvasSize.height) / 2 / (bufferSize.height * scale))
+
+        // Mirror x for the front camera (preview is mirrored; pixel buffers are not).
+        let mirroredX = 1 - point.x
+
+        // Map through crop: only the range [crop, 1-crop] is visible on screen.
+        let screenX = (mirroredX - cropX) / (1 - 2 * cropX) * canvasSize.width
+        let screenY = ((1 - point.y) - cropY) / (1 - 2 * cropY) * canvasSize.height
+
+        return CGPoint(x: screenX, y: screenY)
     }
 
     // MARK: - Drawing
@@ -42,8 +67,8 @@ struct SkeletonOverlayView: View {
             guard let ptA = skeleton.joints[nameA],
                   let ptB = skeleton.joints[nameB] else { continue }
 
-            let screenA = Self.toScreen(ptA, size: size)
-            let screenB = Self.toScreen(ptB, size: size)
+            let screenA = Self.toScreen(ptA, canvasSize: size, bufferSize: bufferSize)
+            let screenB = Self.toScreen(ptB, canvasSize: size, bufferSize: bufferSize)
 
             var path = Path()
             path.move(to: screenA)
@@ -62,7 +87,7 @@ struct SkeletonOverlayView: View {
 
         // Joint dots
         for (_, pt) in skeleton.joints {
-            let screen = Self.toScreen(pt, size: size)
+            let screen = Self.toScreen(pt, canvasSize: size, bufferSize: bufferSize)
             let outerRect = CGRect(x: screen.x - 5, y: screen.y - 5, width: 10, height: 10)
             let innerRect = CGRect(x: screen.x - 3, y: screen.y - 3, width: 6, height: 6)
             context.fill(Path(ellipseIn: outerRect), with: .color(red.opacity(0.30)))
