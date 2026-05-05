@@ -16,8 +16,10 @@ struct SkeletonOverlayView: View {
     // MARK: - Coordinate Conversion
 
     /// Converts Vision normalized coordinates (origin bottom-left) to screen coordinates (origin top-left).
+    /// Converts Vision normalized coordinates to screen coordinates.
+    /// X is mirrored to match AVCaptureVideoPreviewLayer's front-camera horizontal flip.
     static func toScreen(_ point: CGPoint, size: CGSize) -> CGPoint {
-        CGPoint(x: point.x * size.width, y: (1 - point.y) * size.height)
+        CGPoint(x: (1 - point.x) * size.width, y: (1 - point.y) * size.height)
     }
 
     // MARK: - Drawing
