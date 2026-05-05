@@ -15,6 +15,7 @@ final class SessionManager: ObservableObject {
     @Published var livePunches: [LivePunch] = []
     @Published var showStopConfirmation = false
     @Published var currentSkeleton: SkeletonFrame?
+    @Published var videoBufferSize: CGSize = CGSize(width: 1080, height: 1920)
 
     // MARK: - Session Config
 
@@ -167,12 +168,17 @@ final class SessionManager: ObservableObject {
     func processFrame(_ pixelBuffer: CVPixelBuffer) {
         guard isRecording else { return }
 
+        // Read dimensions on the camera thread (safe for CVPixelBuffer metadata queries)
+        let bufferWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+        let bufferHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+
         visionProcessor.detectBodyPose(from: pixelBuffer) { [weak self] observations in
             guard let self else { return }
             let prediction = self.mlEngine.predictMove(from: observations)
             let skeleton = self.visionProcessor.extractSkeleton(from: observations)
             DispatchQueue.main.async {
                 guard self.isRecording else { return }
+                self.videoBufferSize = CGSize(width: bufferWidth, height: bufferHeight)
                 self.currentSkeleton = skeleton
                 self.currentFramePredictions.append(prediction)
                 self.updateLivePunchIfNeeded(prediction: prediction)
