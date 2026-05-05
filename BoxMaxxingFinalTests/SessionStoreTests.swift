@@ -1,6 +1,7 @@
 import XCTest
 @testable import BoxMaxxingFinal
 
+@MainActor
 final class SessionStoreTests: XCTestCase {
 
     override func setUp() {
@@ -28,6 +29,12 @@ final class SessionStoreTests: XCTestCase {
         SessionStore.shared.save(events: [e1, e2], startDate: Date(), duration: 120)
         SessionStore.shared.updateClip(eventId: "e1", url: URL(fileURLWithPath: "/tmp/clip.mov"))
         XCTAssertNil(SessionStore.shared.currentEvents.first { $0.id == "e2" }?.clipURL)
+        // Verify the updated event preserved its non-clipURL fields
+        let updatedEvent = SessionStore.shared.currentEvents.first { $0.id == "e1" }
+        XCTAssertEqual(updatedEvent?.time, 10)
+        XCTAssertEqual(updatedEvent?.confidence, 0.4)
+        XCTAssertEqual(updatedEvent?.status, .wrong)
+        XCTAssertNil(updatedEvent?.detectedAs)
     }
 
     func test_updateClip_unknownId_doesNothing() {

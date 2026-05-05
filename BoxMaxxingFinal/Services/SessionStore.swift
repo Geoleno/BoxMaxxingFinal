@@ -9,6 +9,7 @@ final class SessionStore: ObservableObject {
     private(set) var sessionStartDate: Date?
     private(set) var sessionDuration: TimeInterval = 0
 
+    @MainActor
     func save(events: [SessionEvent], startDate: Date, duration: TimeInterval) {
         currentEvents = events
         sessionStartDate = startDate
@@ -17,6 +18,7 @@ final class SessionStore: ObservableObject {
 
     /// Replaces the event matching `eventId` with an updated copy that has `clipURL` set.
     /// Must be called on the main queue.
+    @MainActor
     func updateClip(eventId: String, url: URL) {
         guard let idx = currentEvents.firstIndex(where: { $0.id == eventId }) else { return }
         let old = currentEvents[idx]
@@ -28,6 +30,7 @@ final class SessionStore: ObservableObject {
         )
     }
 
+    @MainActor
     func clear() {
         currentEvents = []
         sessionStartDate = nil
