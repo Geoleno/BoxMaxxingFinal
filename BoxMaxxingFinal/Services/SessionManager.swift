@@ -16,6 +16,8 @@ final class SessionManager: ObservableObject {
     @Published var showStopConfirmation = false
     @Published var currentSkeleton: SkeletonFrame?
     @Published var videoBufferSize: CGSize = CGSize(width: 1080, height: 1920)
+    @Published var currentTargetMove: Move? = nil
+    @Published var lastWindowResult: WindowResult? = nil
 
     // MARK: - Session Config
 
@@ -34,6 +36,9 @@ final class SessionManager: ObservableObject {
     private var currentMoveIndex = 0
     private var globalWindowIndex = 0
     private var currentFramePredictions: [FramePrediction] = []
+    private var liveSessionEvents: [SessionEvent] = []
+    private var currentWindowMoveId: String = ""
+    private var windowResultToken = UUID()
 
     // MARK: - HUD Stabilization
 
@@ -59,6 +64,10 @@ final class SessionManager: ObservableObject {
         globalWindowIndex = 0
         elapsedSeconds = 0
         livePunches = []
+        liveSessionEvents = []
+        currentWindowMoveId = ""
+        currentTargetMove = nil
+        lastWindowResult = nil
     }
 
     // MARK: - Session Control
@@ -72,6 +81,9 @@ final class SessionManager: ObservableObject {
         globalWindowIndex = 0
         elapsedSeconds = 0
         livePunches = []
+        liveSessionEvents = []
+        currentWindowMoveId = ""
+        mlEngine.resetBuffer()
 
         mlEngine.loadModel()
 
@@ -111,55 +123,85 @@ final class SessionManager: ObservableObject {
         stabilizationTimer?.invalidate(); stabilizationTimer = nil
         pendingPunch = nil
 
-        isRecording = false     // RecordingView: phase switches to .done (ReviewingOverlay)
+        isRecording = false
         currentSkeleton = nil
+        currentTargetMove = nil
+        lastWindowResult = nil
         isAnalyzing = true
 
-        Task { @MainActor in
-            do {
-                // Use debug video if set, otherwise use the live-recorded session file
-                let videoURL: URL
-                if let override = SessionRecorder.shared.debugVideoOverride {
-                    videoURL = override
-                } else {
-                    videoURL = try await SessionRecorder.shared.stopRecording()
-                }
+        if !liveSessionEvents.isEmpty {
+            // Fast path: evaluation already completed during the session
+            SessionStore.shared.save(
+                events:    liveSessionEvents,
+                startDate: sessionStartDate ?? Date(),
+                duration:  TimeInterval(elapsedSeconds)
+            )
+            isAnalyzing = false   // ResultsView opens immediately
 
-                var events = await PostSessionAnalyzer.shared.analyze(videoURL: videoURL)
-
-                // If no events were detected (no camera / body not found / analyzer not yet implemented),
-                // fall back to generating expected events from the selected combo's move sequence.
-                if events.isEmpty, let combo = selectedCombo {
-                    let state = SessionState(
-                        selectedComboId: combo.id,
-                        selectedMoveIds: combo.moveIds,
-                        sessionLength: Int(sessionDuration / 60)
-                    )
-                    events = generateEvents(state: state)
+            // Background: finalize the video file and extract clips for wrong/unclear events
+            let eventsSnapshot = liveSessionEvents
+            Task {
+                do {
+                    let videoURL: URL
+                    if let override = SessionRecorder.shared.debugVideoOverride {
+                        videoURL = override
+                    } else {
+                        videoURL = try await SessionRecorder.shared.stopRecording()
+                    }
+                    // Task 4: await PostSessionAnalyzer.shared.extractClips(videoURL: videoURL, events: eventsSnapshot)
+                    _ = eventsSnapshot  // suppress unused warning until Task 4 is implemented
+                } catch {
+                    // Recording failed — accuracy data already saved, clips unavailable
                 }
-
-                SessionStore.shared.save(
-                    events:    events,
-                    startDate: sessionStartDate ?? Date(),
-                    duration:  TimeInterval(elapsedSeconds)
-                )
-            } catch {
-                // Recording failed — generate expected events rather than show empty results
-                let fallbackEvents: [SessionEvent]
-                if let combo = selectedCombo {
-                    let state = SessionState(
-                        selectedComboId: combo.id,
-                        selectedMoveIds: combo.moveIds,
-                        sessionLength: Int(sessionDuration / 60)
-                    )
-                    fallbackEvents = generateEvents(state: state)
-                } else {
-                    fallbackEvents = []
-                }
-                SessionStore.shared.save(events: fallbackEvents, startDate: sessionStartDate ?? Date(), duration: TimeInterval(elapsedSeconds))
             }
+        } else {
+            // Fallback: no live events (no camera / all windows had no body detected)
+            Task { @MainActor in
+                do {
+                    let videoURL: URL
+                    if let override = SessionRecorder.shared.debugVideoOverride {
+                        videoURL = override
+                    } else {
+                        videoURL = try await SessionRecorder.shared.stopRecording()
+                    }
 
-            isAnalyzing = false     // RecordingView: calls onFinish() → navigates to Results
+                    var events = await PostSessionAnalyzer.shared.analyze(videoURL: videoURL)
+
+                    if events.isEmpty, let combo = selectedCombo {
+                        let state = SessionState(
+                            selectedComboId: combo.id,
+                            selectedMoveIds: combo.moveIds,
+                            sessionLength: Int(sessionDuration / 60)
+                        )
+                        events = generateEvents(state: state)
+                    }
+
+                    SessionStore.shared.save(
+                        events:    events,
+                        startDate: sessionStartDate ?? Date(),
+                        duration:  TimeInterval(elapsedSeconds)
+                    )
+                } catch {
+                    let fallbackEvents: [SessionEvent]
+                    if let combo = selectedCombo {
+                        let state = SessionState(
+                            selectedComboId: combo.id,
+                            selectedMoveIds: combo.moveIds,
+                            sessionLength: Int(sessionDuration / 60)
+                        )
+                        fallbackEvents = generateEvents(state: state)
+                    } else {
+                        fallbackEvents = []
+                    }
+                    SessionStore.shared.save(
+                        events:    fallbackEvents,
+                        startDate: sessionStartDate ?? Date(),
+                        duration:  TimeInterval(elapsedSeconds)
+                    )
+                }
+
+                isAnalyzing = false
+            }
         }
     }
 
@@ -207,6 +249,8 @@ final class SessionManager: ObservableObject {
         guard isRecording, let combo = selectedCombo else { return }
 
         let moveId = combo.moveIds[currentMoveIndex % combo.moveIds.count]
+        currentWindowMoveId = moveId
+        currentTargetMove = findMove(moveId)
         audioCuePlayer.playAudioCue(for: moveId)
         currentFramePredictions = []
 
@@ -216,9 +260,54 @@ final class SessionManager: ObservableObject {
     }
 
     private func endMoveWindow() {
-        guard isRecording else { return }
-        // Events are built post-session by PostSessionAnalyzer, not here.
-        // This loop only drives audio cues via beginMoveWindow.
+        guard isRecording, let combo = selectedCombo else { return }
+
+        let predictions = currentFramePredictions
+        let expectedMoveId = currentWindowMoveId
+        let expectedMove = findMove(expectedMoveId)
+
+        let (dominantLabel, avgConfidence) = MovementAggregator().aggregate(predictions: predictions)
+
+        // Only emit a SessionEvent when a real move was detected (not no_body / no_movement)
+        if let expectedMove, findMove(dominantLabel) != nil {
+            let detectedMove = findMove(dominantLabel)!
+            let matched = dominantLabel == expectedMoveId
+
+            let status: SessionEvent.EventStatus
+            if avgConfidence > 0.80 {
+                status = .correct
+            } else if avgConfidence > 0.50 {
+                status = .unclear
+            } else {
+                status = .wrong
+            }
+
+            liveSessionEvents.append(SessionEvent(
+                id:         UUID().uuidString,
+                time:       elapsedSeconds,
+                move:       expectedMove,
+                status:     status,
+                confidence: Double(avgConfidence),
+                detectedAs: matched ? nil : detectedMove.name,
+                note:       PerformanceFeedback.suggestion(for: expectedMoveId),
+                clipURL:    nil
+            ))
+
+            // Publish HUD result — auto-clears after 1.5s using a token to avoid stale clears
+            let token = UUID()
+            windowResultToken = token
+            lastWindowResult = WindowResult(
+                expectedMoveId: expectedMoveId,
+                detectedMoveId: dominantLabel,
+                confidence:     Double(avgConfidence),
+                matched:        matched
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self, self.windowResultToken == token else { return }
+                self.lastWindowResult = nil
+            }
+        }
+
         currentFramePredictions = []
         globalWindowIndex += 1
         currentMoveIndex += 1
