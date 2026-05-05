@@ -83,7 +83,7 @@ struct ResultsView: View {
         .ignoresSafeArea(edges: .bottom)
         .sheet(item: $activeEvent) { event in
             DetailSheetView(event: event)
-                .presentationDetents([.large])
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
     }
@@ -112,8 +112,8 @@ struct ResultsView: View {
             .padding(8)
         }
         .padding(.horizontal, 12)
+        .padding(.top, 8)
         .frame(minHeight: 44)
-        
     }
 
     private func exportResults() {
@@ -219,7 +219,7 @@ private struct TimelineView: View {
                             Text(statusLabel)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(accent)
-                            Text(" · \(Int(event.confidence * 100))% confidence")
+                            Text(" · \(Int(event.confidence * 100))%")
                                 .font(.system(size: 13))
                                 .foregroundColor(Color(UIColor.secondaryLabel))
                         }
@@ -293,111 +293,119 @@ private struct LegendDot: View {
 struct DetailSheetView: View {
     let event: SessionEvent
     @Environment(\.dismiss) private var dismiss
-    private var accent: Color {
-        switch event.status {
-        case .correct: return Color(UIColor.systemGreen)
-        case .wrong:   return Color(UIColor.systemRed)
-        case .unclear: return Color(UIColor.systemOrange)
-        }
-    }
+    @State private var clipPlaying = false
 
-    private var statusLabel: String {
-        switch event.status {
-        case .correct: return "Excellent"
-        case .wrong:   return "Wrong move"
-        case .unclear: return "Needs review"
-        }
-    }
+    private var accent: Color { event.movementState.color }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                // Sheet nav row
-                HStack {
-                    Text(formatTime(event.time))
-                        .font(.system(size: 15, design: .monospaced))
-                        .monospacedDigit()
-                        .foregroundColor(Color(UIColor.secondaryLabel))
-                        .tracking(-0.08)
-                    Spacer()
-                    Button("Done") { dismiss() }
+
+                // MARK: Nav row
+                VStack(spacing: 2) {
+                    Text("Movement Detail")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(Color(UIColor.label))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-//                        .background(Capsule().fill(Color(UIColor.systemFill)))
-//                        .buttonStyle(.glass)
-                        .buttonStyle(.glassProminent)
-                        .tint(.gray.opacity(0.3))
-                }
-                .padding(.top, 24)
-                .padding(.bottom, 12)
-
-                // Status pill
-                HStack(spacing: 6) {
-                    Circle().fill(accent).frame(width: 6, height: 6)
-                    Text(statusLabel)
-                        .font(.system(size: 13, weight: .semibold))
-                        .tracking(-0.08)
-                }
-                .foregroundColor(accent)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(Capsule().fill(accent.opacity(0.14)))
-                .padding(.bottom, 8)
-
-                Text(event.move.name)
-                    .font(.system(size: 28, weight: .bold))
-                    .tracking(0.34)
-                    .padding(.bottom, 4)
-
-                Group {
-                    Text("\(Int(event.confidence * 100))% confidence\(event.detectedAs != nil ? " · Detected as \(event.detectedAs!)" : "")")
-                }
-                .font(.system(size: 15))
-                .foregroundColor(Color(UIColor.secondaryLabel))
-                .tracking(-0.24)
-
-                // Confidence bar
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(UIColor.secondarySystemFill))
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(accent)
-                            .frame(width: geo.size.width * CGFloat(event.confidence))
-                    }
-                }
-                .frame(height: 8)
-                .padding(.top, 16)
-                .padding(.bottom, 22)
-
-                if event.status == .correct {
-                    // GREEN — no clip (was discarded); show encouragement only
-                    Text("No clip — movement was rated Excellent ✅")
-                        .font(.system(size: 15))
+                    Text("at \(formatTime(event.time))")
+                        .font(.system(size: 13, design: .monospaced))
+                        .monospacedDigit()
                         .foregroundColor(Color(UIColor.secondaryLabel))
-                        .italic()
-                        .padding(.bottom, 22)
-                } else {
-                    // YELLOW / RED / NO SCAN / NO MOVEMENT — show user clip
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 20)
+                .padding(.bottom, 20)
+
+                // MARK: Hero header — glyph + name + badges
+                HStack(spacing: 16) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(accent.opacity(0.12))
+                            .frame(width: 64, height: 64)
+                        MoveGlyphView(kind: event.move.kind, side: event.move.side,
+                                      color: accent, size: 34)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(event.move.name)
+                            .font(.system(size: 24, weight: .bold))
+                            .tracking(0.2)
+                        HStack(spacing: 6) {
+                            moveBadge(event.move.side == .left ? "Left" : "Right")
+                            moveBadge(kindLabel(event.move.kind))
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.bottom, 20)
+
+                // MARK: Performance card — status + confidence bar + scale
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        HStack(spacing: 6) {
+                            Circle().fill(accent).frame(width: 8, height: 8)
+                            Text(event.movementState.label)
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(accent)
+                        }
+                        Spacer()
+                        Text("\(Int(event.confidence * 100))% confidence")
+                            .font(.system(size: 15, design: .monospaced))
+                            .monospacedDigit()
+                            .foregroundColor(Color(UIColor.secondaryLabel))
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color(UIColor.secondarySystemFill))
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(accent)
+                                .frame(width: geo.size.width * CGFloat(event.confidence))
+                        }
+                    }
+                    .frame(height: 8)
+                    HStack {
+                        Text("0%")
+                        Spacer()
+                        Text("50%")
+                        Spacer()
+                        Text("100%")
+                    }
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(UIColor.tertiaryLabel))
+                }
+                .padding(16)
+                .background(Color(UIColor.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .padding(.bottom, 16)
+
+                // MARK: Detection mismatch — only when AI picked the wrong move
+                if event.status == .wrong, let detected = event.detectedAs {
+                    detectionMismatchBlock(expected: event.move.name, detected: detected)
+                        .padding(.bottom, 16)
+                }
+
+                // MARK: Clip
+                if event.status != .correct {
                     SectionLabel("Your clip")
-                    if let clipURL = event.clipURL {
-                        VideoPlayerView(url: clipURL, startSeconds: event.time)
-                            .aspectRatio(16/10, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: 14))
-                            .padding(.bottom, 22)
+                    if event.clipURL != nil {
+                        VideoPanel(label: "Recorded · 0:03", playing: $clipPlaying, annotated: false)
+                            .padding(.bottom, 20)
                     } else {
                         Text("Clip not available")
                             .font(.system(size: 15))
                             .foregroundColor(Color(UIColor.secondaryLabel))
                             .italic()
-                            .padding(.bottom, 22)
+                            .padding(.bottom, 20)
                     }
+                } else {
+                    Text("No clip saved — movement was rated Excellent")
+                        .font(.system(size: 15))
+                        .foregroundColor(Color(UIColor.secondaryLabel))
+                        .italic()
+                        .padding(.bottom, 20)
                 }
 
-                // Suggestion — from PerformanceFeedback, stored in event.note
-                SectionLabel("Suggestion")
+                // MARK: Coach note
+                SectionLabel("Coach note")
                 Text(event.note)
                     .font(.system(size: 15))
                     .foregroundColor(Color(UIColor.label))
@@ -407,15 +415,135 @@ struct DetailSheetView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(UIColor.secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.bottom, 22)
+                    .padding(.bottom, 20)
 
-                // Correct form reference video — PLACEHOLDER
-                // TODO: Replace with AVPlayer using correct movement video for event.move.id
+                // MARK: Form checklist
+                SectionLabel("Form checklist")
+                formChecklist(for: event.move.kind, status: event.status)
+                    .padding(.bottom, 20)
+
+                // MARK: Correct form reference video
                 SectionLabel("Correct form")
                 VideoPanel(label: "Reference · loop", playing: .constant(true), annotated: true)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 40)
+        }
+    }
+
+    // MARK: - Subviews
+
+    private func moveBadge(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.system(size: 11, weight: .semibold))
+            .tracking(0.5)
+            .foregroundColor(Color(UIColor.secondaryLabel))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color(UIColor.tertiarySystemFill))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func detectionMismatchBlock(expected: String, detected: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Detection mismatch")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Color(UIColor.secondaryLabel))
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Expected")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(UIColor.tertiaryLabel))
+                    Text(expected)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Color(UIColor.label))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color(UIColor.tertiaryLabel))
+                    .padding(.horizontal, 12)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Detected as")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(UIColor.tertiaryLabel))
+                    Text(detected)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Color(UIColor.systemRed))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(14)
+            .background(Color(UIColor.systemRed).opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    private func formChecklist(for kind: Move.MoveKind, status: SessionEvent.EventStatus) -> some View {
+        let cues = formCues(for: kind)
+        let isCorrect = status == .correct
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(cues.enumerated()), id: \.offset) { i, cue in
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: isCorrect ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(isCorrect ? Color(UIColor.systemGreen) : accent)
+                        .padding(.top, 1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(cue.title)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(Color(UIColor.label))
+                        Text(cue.detail)
+                            .font(.system(size: 13))
+                            .foregroundColor(Color(UIColor.secondaryLabel))
+                            .lineSpacing(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 14)
+                if i < cues.count - 1 {
+                    Divider().padding(.leading, 42)
+                }
+            }
+        }
+        .background(Color(UIColor.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Helpers
+
+    private func kindLabel(_ kind: Move.MoveKind) -> String {
+        switch kind {
+        case .jab:      return "Jab"
+        case .hook:     return "Hook"
+        case .uppercut: return "Uppercut"
+        }
+    }
+
+    private struct FormCue { let title: String; let detail: String }
+
+    private func formCues(for kind: Move.MoveKind) -> [FormCue] {
+        switch kind {
+        case .jab:
+            return [
+                FormCue(title: "Full extension",   detail: "Extend your arm completely and snap the wrist on impact — a half-extended jab loses both speed and power."),
+                FormCue(title: "Chin down",         detail: "Keep your chin tucked behind your lead shoulder throughout the punch to protect your jaw."),
+                FormCue(title: "Quick retraction",  detail: "Pull the fist back along the exact same line it traveled out — this resets your guard and sets up the next punch."),
+            ]
+        case .hook:
+            return [
+                FormCue(title: "Pivot the lead foot", detail: "Rotate on the ball of your foot as you throw — hip rotation is the main power source for the hook."),
+                FormCue(title: "Elbow parallel",      detail: "Keep the elbow at shoulder height and parallel to the floor. High or low elbows telegraph the punch and reduce power."),
+                FormCue(title: "Rear hand stays up",  detail: "Keep the rear glove high on your cheek while the lead arm swings — don't leave your head exposed."),
+            ]
+        case .uppercut:
+            return [
+                FormCue(title: "Dip the shoulder first", detail: "Lower your same-side shoulder slightly before driving up — this loads the punch and hides the tell."),
+                FormCue(title: "Drive with the legs",    detail: "Push through the floor and extend the knees. Power comes from the ground up, not from the arm alone."),
+                FormCue(title: "Tight elbow path",       detail: "Keep the elbow close to your body as the fist rises — a wide elbow wastes energy and exposes your ribs."),
+            ]
         }
     }
 }

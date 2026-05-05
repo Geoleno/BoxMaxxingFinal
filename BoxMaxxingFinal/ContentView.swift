@@ -13,13 +13,23 @@ struct ContentView: View {
         ZStack {
             switch route {
             case .menu:
-                MenuView(state: $sessionState) {
+                MenuView(state: $sessionState, onStart: {
                     if let comboId = sessionState.selectedComboId,
                        let combo = allCombos.first(where: { $0.id == comboId }) {
                         sessionManager.configure(combo: combo)
                     }
                     withAnimation(.easeInOut(duration: 0.25)) { route = .record }
-                }
+                }, onTestVideo: { _ in
+                    let testState = SessionState(
+                        selectedComboId: "c1",
+                        selectedMoveIds: allMoves.map(\.id),
+                        sessionLength: 2
+                    )
+                    sessionState = testState
+                    let events = generateEvents(state: testState)
+                    SessionStore.shared.save(events: events, startDate: Date(), duration: 120)
+                    withAnimation(.easeInOut(duration: 0.25)) { route = .results }
+                })
                 .transition(.opacity)
 
             case .record:
