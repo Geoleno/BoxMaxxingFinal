@@ -14,6 +14,7 @@ final class SessionManager: ObservableObject {
     @Published var elapsedSeconds = 0
     @Published var livePunches: [LivePunch] = []
     @Published var showStopConfirmation = false
+    @Published var currentSkeleton: SkeletonFrame?
 
     // MARK: - Session Config
 
@@ -110,6 +111,7 @@ final class SessionManager: ObservableObject {
         pendingPunch = nil
 
         isRecording = false     // RecordingView: phase switches to .done (ReviewingOverlay)
+        currentSkeleton = nil
         isAnalyzing = true
 
         Task { @MainActor in
@@ -165,13 +167,13 @@ final class SessionManager: ObservableObject {
     func processFrame(_ pixelBuffer: CVPixelBuffer) {
         guard isRecording else { return }
 
-        // Vision + ML inference drives live punch chips in the HUD only.
-        // Full-session recording is handled by SessionRecorder via AVCaptureMovieFileOutput.
         visionProcessor.detectBodyPose(from: pixelBuffer) { [weak self] observations in
             guard let self else { return }
             let prediction = self.mlEngine.predictMove(from: observations)
+            let skeleton = self.visionProcessor.extractSkeleton(from: observations)
             DispatchQueue.main.async {
                 guard self.isRecording else { return }
+                self.currentSkeleton = skeleton
                 self.currentFramePredictions.append(prediction)
                 self.updateLivePunchIfNeeded(prediction: prediction)
             }
