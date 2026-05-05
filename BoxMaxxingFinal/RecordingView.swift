@@ -30,6 +30,11 @@ struct RecordingView: View {
             })
             .ignoresSafeArea()
 
+            if phase == .recording {
+                SkeletonOverlayView(skeleton: sessionManager.currentSkeleton)
+                    .ignoresSafeArea()
+            }
+
             // Vignette overlay
             LinearGradient(
                 stops: [
