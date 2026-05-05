@@ -148,8 +148,7 @@ final class SessionManager: ObservableObject {
                     } else {
                         videoURL = try await SessionRecorder.shared.stopRecording()
                     }
-                    // Task 4: await PostSessionAnalyzer.shared.extractClips(videoURL: videoURL, events: eventsSnapshot)
-                    _ = eventsSnapshot  // suppress unused warning until Task 4 is implemented
+                    await PostSessionAnalyzer.shared.extractClips(videoURL: videoURL, events: eventsSnapshot)
                 } catch {
                     // Recording failed — accuracy data already saved, clips unavailable
                 }

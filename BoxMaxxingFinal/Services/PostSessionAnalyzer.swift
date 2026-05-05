@@ -101,4 +101,52 @@ final class PostSessionAnalyzer {
             clipURL:    isGreen ? nil : sessionURL
         )
     }
+
+    // MARK: - Background clip extraction
+
+    /// Trims a 3-second clip for each wrong/unclear event and updates SessionStore as each completes.
+    /// Processes events serially to avoid AVAssetExportSession throttling.
+    func extractClips(videoURL: URL, events: [SessionEvent]) async {
+        let asset = AVAsset(url: videoURL)
+
+        let videoDuration: Double
+        do {
+            let cmDuration = try await asset.load(.duration)
+            videoDuration = CMTimeGetSeconds(cmDuration)
+        } catch {
+            return
+        }
+
+        for event in events where event.status != .correct {
+            let startSec = max(0, Double(event.time) - 0.5)
+            let endSec   = min(videoDuration, Double(event.time) + 2.5)
+            guard endSec > startSec else { continue }
+
+            let timeRange = CMTimeRange(
+                start:    CMTime(seconds: startSec, preferredTimescale: 600),
+                duration: CMTime(seconds: endSec - startSec, preferredTimescale: 600)
+            )
+
+            let outputURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + ".mov")
+
+            guard let session = AVAssetExportSession(asset: asset,
+                                                     presetName: AVAssetExportPresetPassthrough) else { continue }
+            session.outputURL      = outputURL
+            session.outputFileType = .mov
+            session.timeRange      = timeRange
+
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                session.exportAsynchronously { cont.resume() }
+            }
+
+            guard session.status == .completed else { continue }
+
+            let eventId = event.id
+            let clipURL = outputURL
+            await MainActor.run {
+                SessionStore.shared.updateClip(eventId: eventId, url: clipURL)
+            }
+        }
+    }
 }
