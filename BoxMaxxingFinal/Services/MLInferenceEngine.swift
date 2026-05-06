@@ -39,11 +39,12 @@ final class MLInferenceEngine {
     // MARK: - Setup
 
     func loadModel() {
+        guard let url = Bundle.main.url(forResource: "80_epoch", withExtension: "mlmodelc") else {
+            print("MLInferenceEngine: Model file not found in bundle")
+            return
+        }
+        
         do {
-            guard let url = Bundle.main.url(forResource: "80_epoch", withExtension: "mlmodelc") else {
-                print("MLInferenceEngine: Model file not found in bundle")
-                return
-            }
             model = try MLModel(contentsOf: url, configuration: MLModelConfiguration())
         } catch {
             print("MLInferenceEngine: Failed to load model — \(error)")
@@ -57,9 +58,11 @@ final class MLInferenceEngine {
     // MARK: - Per-frame inference
 
     func predictMove(from observations: [VNHumanBodyPoseObservation]?) -> FramePrediction {
-        guard let observations, !observations.isEmpty else {
+        guard let observations,
+                !observations.isEmpty else {
             return FramePrediction(label: "no_body_detected", confidence: 0.0)
         }
+        
 
         // Extract joint values from the highest-confidence observation (Vision sorts desc)
         let allPoints = (try? observations[0].recognizedPoints(.all)) ?? [:]

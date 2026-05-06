@@ -1,10 +1,17 @@
 import SwiftUI
 
-enum AppRoute {
-    case menu, record, results
+//camelCase  -> variable, constant -> non object func / var / let / guard let abc = asda
+//PascalCase -> struct/class/enum -> object
+
+enum BoxingType {
+    case upperCut, jab, cross
 }
 
 struct ContentView: View {
+    enum AppRoute {
+        case menu, record, results
+    }
+    
     @State private var route: AppRoute = .menu
     @State private var sessionState = SessionState()
     @StateObject private var sessionManager = SessionManager()
