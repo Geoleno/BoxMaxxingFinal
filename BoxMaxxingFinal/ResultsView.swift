@@ -1,31 +1,32 @@
 import SwiftUI
+import AVKit
+import AVFoundation
+import CoreMedia
+import Combine
 
 struct ResultsView: View {
     let state: SessionState
-    let events: [SessionEvent]
+    let wrongMovements: [WrongMovement]
+    let videoURL: URL?
     let onBack: () -> Void
 
-    @State private var activeEvent: SessionEvent? = nil
-    @State private var density: String = "compact"
-    @State private var exportFeedback: String? = nil
+    @State private var activeMovement: WrongMovement? = nil
 
     private var total: Int { state.sessionLength * 60 }
-    private var wrongCount: Int  { events.filter { $0.status == .wrong }.count }
-    private var unclearCount: Int { events.filter { $0.status == .unclear }.count }
+    private var wrongCount: Int        { wrongMovements.count }
+    private var badTechniqueCount: Int { wrongMovements.filter { $0.isWrongTechnique }.count }
     private var avgConf: Int {
-        guard !events.isEmpty else { return 0 }
-        let sum = events.reduce(0.0) { $0 + $1.confidence }
-        return Int(sum / Double(events.count) * 100)
+        guard !wrongMovements.isEmpty else { return 0 }
+        let sum = wrongMovements.reduce(0.0) { $0 + Double($1.confidence) }
+        return Int(sum / Double(wrongMovements.count) * 100)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Nav bar
             navBar
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    // Large title
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Session Review")
                             .font(.system(size: 34, weight: .bold))
@@ -41,16 +42,14 @@ struct ResultsView: View {
                     .padding(.top, 4)
                     .padding(.bottom, 8)
 
-                    // Stats
                     HStack(spacing: 8) {
-                        StatCard(label: "Wrong",    value: "\(wrongCount)",  color: Color(UIColor.systemRed))
-                        StatCard(label: "Unclear",  value: "\(unclearCount)", color: Color(UIColor.systemOrange))
-                        StatCard(label: "Avg Conf", value: "\(avgConf)%",    color: Color(UIColor.label))
+                        StatCard(label: "Wrong",         value: "\(wrongCount)",        color: Color(UIColor.systemRed))
+                        StatCard(label: "Bad technique", value: "\(badTechniqueCount)", color: Color(UIColor.systemOrange))
+                        StatCard(label: "Avg Conf",      value: "\(avgConf)%",          color: Color(UIColor.label))
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
 
-                    // Timeline header
                     HStack {
                         Text("Timeline")
                             .font(.system(size: 13, weight: .regular))
@@ -58,8 +57,8 @@ struct ResultsView: View {
                             .tracking(-0.08)
                         Spacer()
                         HStack(spacing: 12) {
-                            LegendDot(color: Color(UIColor.systemRed),    label: "Wrong")
-                            LegendDot(color: Color(UIColor.systemOrange), label: "Unclear")
+                            LegendDot(color: Color(UIColor.systemRed),    label: "Wrong technique")
+                            LegendDot(color: Color(UIColor.systemOrange), label: "Bad execution")
                         }
                         .font(.system(size: 13))
                         .foregroundColor(Color(UIColor.secondaryLabel))
@@ -67,12 +66,10 @@ struct ResultsView: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 6)
 
-                    // Timeline
-                    TimelineView(
-                        events: events,
+                    WrongMovementTimelineView(
+                        movements: wrongMovements,
                         total: total,
-                        density: density,
-                        onOpenEvent: { activeEvent = $0 }
+                        onOpenMovement: { activeMovement = $0 }
                     )
                     .padding(.horizontal, 20)
                 }
@@ -81,8 +78,8 @@ struct ResultsView: View {
         }
         .background(Color(UIColor.systemBackground))
         .ignoresSafeArea(edges: .bottom)
-        .sheet(item: $activeEvent) { event in
-            DetailSheetView(eventId: event.id)
+        .sheet(item: $activeMovement) { movement in
+            DetailSheetView(movement: movement, videoURL: videoURL)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
@@ -101,47 +98,27 @@ struct ResultsView: View {
                 .foregroundColor(Color(UIColor.systemRed))
             }
             .padding(8)
-
             Spacer()
-
-            Button(action: exportResults) {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundColor(Color(UIColor.systemRed))
-            }
-            .padding(8)
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .frame(minHeight: 44)
     }
-
-    private func exportResults() {
-        // ResultExporter requires a UIScrollView reference.
-        // Full scrollable export is triggered via UIHostingController snapshot.
-        // TODO: Pass UIScrollView reference from the SwiftUI ScrollView wrapper
-        // For now, show a placeholder overlay
-        exportFeedback = "Export coming soon — requires UIScrollView bridge"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { exportFeedback = nil }
-    }
 }
 
 // MARK: - Timeline
 
-private struct TimelineView: View {
-    let events: [SessionEvent]
+private struct WrongMovementTimelineView: View {
+    let movements: [WrongMovement]
     let total: Int
-    let density: String
-    let onOpenEvent: (SessionEvent) -> Void
+    let onOpenMovement: (WrongMovement) -> Void
 
-    private var rowSpacing: CGFloat { density == "compact" ? 12 : 22 }
-    // Dot center x = 14 (dot left=7, width=14). Spine left=13, width=2, center=14. ✓
     private let dotCenter: CGFloat = 14
-    private let dotSize: CGFloat = 14
+    private let dotSize: CGFloat   = 14
+    private let rowSpacing: CGFloat = 12
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // Spine — center aligns with dot centers
             Rectangle()
                 .fill(Color(UIColor.separator))
                 .frame(width: 2)
@@ -152,10 +129,9 @@ private struct TimelineView: View {
             VStack(alignment: .leading, spacing: 0) {
                 endpointRow(time: "00:00", label: "Start")
 
-                ForEach(events) { event in
-                    eventRow(event)
-                        .padding(.top, rowSpacing)
-                        .padding(.bottom, rowSpacing)
+                ForEach(movements) { movement in
+                    movementRow(movement)
+                        .padding(.vertical, rowSpacing)
                 }
 
                 endpointRow(time: formatTime(total), label: "End")
@@ -184,20 +160,10 @@ private struct TimelineView: View {
         }
     }
 
-    private func eventRow(_ event: SessionEvent) -> some View {
-        let accent: Color
-        let statusLabel: String
-        switch event.status {
-        case .correct:
-            accent = Color(UIColor.systemGreen)
-            statusLabel = "Excellent"
-        case .wrong:
-            accent = Color(UIColor.systemRed)
-            statusLabel = "Wrong move"
-        case .unclear:
-            accent = Color(UIColor.systemOrange)
-            statusLabel = "Needs review"
-        }
+    private func movementRow(_ movement: WrongMovement) -> some View {
+        let accent: Color = movement.isWrongTechnique ? Color(UIColor.systemRed) : Color(UIColor.systemOrange)
+        let statusLabel   = movement.isWrongTechnique ? "Wrong technique" : "Bad execution"
+        let secs          = Int(CMTimeGetSeconds(movement.timestamp))
 
         return HStack(spacing: 7) {
             Circle()
@@ -206,12 +172,13 @@ private struct TimelineView: View {
                 .background(Circle().fill(Color(UIColor.systemBackground)))
                 .padding(.leading, dotCenter - dotSize / 2)
 
-            Button(action: { onOpenEvent(event) }) {
+            Button(action: { onOpenMovement(movement) }) {
                 HStack(spacing: 12) {
-                    MoveGlyphView(kind: event.move.kind, side: event.move.side,
+                    MoveGlyphView(kind: movement.expectedMove.kind,
+                                  side: movement.expectedMove.side,
                                   color: Color(UIColor.label), size: 26)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(event.move.name)
+                        Text(movement.expectedMove.name)
                             .font(.system(size: 16, weight: .semibold))
                             .tracking(-0.32)
                             .foregroundColor(Color(UIColor.label))
@@ -219,14 +186,14 @@ private struct TimelineView: View {
                             Text(statusLabel)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundColor(accent)
-                            Text(" · \(Int(event.confidence * 100))%")
+                            Text(" · \(Int(movement.confidence * 100))%")
                                 .font(.system(size: 13))
                                 .foregroundColor(Color(UIColor.secondaryLabel))
                         }
                         .tracking(-0.08)
                     }
                     Spacer(minLength: 0)
-                    Text(formatTime(event.time))
+                    Text(formatTime(secs))
                         .font(.system(size: 15, design: .monospaced))
                         .monospacedDigit()
                         .foregroundColor(Color(UIColor.secondaryLabel))
@@ -291,28 +258,28 @@ private struct LegendDot: View {
 // MARK: - Detail Sheet
 
 struct DetailSheetView: View {
-    let eventId: String
-    @ObservedObject private var store = SessionStore.shared
+    let movement: WrongMovement
+    let videoURL: URL?
+    @StateObject private var playerHolder = PlayerHolder()
     @Environment(\.dismiss) private var dismiss
-    @State private var clipPlaying = false
 
-    private var event: SessionEvent? {
-        store.currentEvents.first { $0.id == eventId }
+    private var accent: Color {
+        Color.performanceColor(for: movement.confidence)
     }
 
-    private var accent: Color { event?.movementState.color ?? Color(UIColor.systemGray) }
+    private var statusLabel: String {
+        movement.isWrongTechnique ? "Wrong technique" : Color.performanceLabel(for: movement.confidence)
+    }
 
     var body: some View {
-        if let event {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
 
-                // MARK: Nav row
                 VStack(spacing: 2) {
                     Text("Movement Detail")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(Color(UIColor.label))
-                    Text("at \(formatTime(event.time))")
+                    Text("at \(formatTime(Int(CMTimeGetSeconds(movement.timestamp))))")
                         .font(.system(size: 13, design: .monospaced))
                         .monospacedDigit()
                         .foregroundColor(Color(UIColor.secondaryLabel))
@@ -321,39 +288,38 @@ struct DetailSheetView: View {
                 .padding(.top, 20)
                 .padding(.bottom, 20)
 
-                // MARK: Hero header — glyph + name + badges
                 HStack(spacing: 16) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 14)
                             .fill(accent.opacity(0.12))
                             .frame(width: 64, height: 64)
-                        MoveGlyphView(kind: event.move.kind, side: event.move.side,
+                        MoveGlyphView(kind: movement.expectedMove.kind,
+                                      side: movement.expectedMove.side,
                                       color: accent, size: 34)
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(event.move.name)
+                        Text(movement.expectedMove.name)
                             .font(.system(size: 24, weight: .bold))
                             .tracking(0.2)
                         HStack(spacing: 6) {
-                            moveBadge(event.move.side == .left ? "Left" : "Right")
-                            moveBadge(kindLabel(event.move.kind))
+                            moveBadge(movement.expectedMove.side == .left ? "Left" : "Right")
+                            moveBadge(kindLabel(movement.expectedMove.kind))
                         }
                     }
                     Spacer(minLength: 0)
                 }
                 .padding(.bottom, 20)
 
-                // MARK: Performance card — status + confidence bar + scale
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         HStack(spacing: 6) {
                             Circle().fill(accent).frame(width: 8, height: 8)
-                            Text(event.movementState.label)
+                            Text(statusLabel)
                                 .font(.system(size: 15, weight: .semibold))
                                 .foregroundColor(accent)
                         }
                         Spacer()
-                        Text("\(Int(event.confidence * 100))% confidence")
+                        Text("\(Int(movement.confidence * 100))% confidence")
                             .font(.system(size: 15, design: .monospaced))
                             .monospacedDigit()
                             .foregroundColor(Color(UIColor.secondaryLabel))
@@ -364,16 +330,12 @@ struct DetailSheetView: View {
                                 .fill(Color(UIColor.secondarySystemFill))
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(accent)
-                                .frame(width: geo.size.width * CGFloat(event.confidence))
+                                .frame(width: geo.size.width * CGFloat(movement.confidence))
                         }
                     }
                     .frame(height: 8)
                     HStack {
-                        Text("0%")
-                        Spacer()
-                        Text("50%")
-                        Spacer()
-                        Text("100%")
+                        Text("0%"); Spacer(); Text("50%"); Spacer(); Text("100%")
                     }
                     .font(.system(size: 11))
                     .foregroundColor(Color(UIColor.tertiaryLabel))
@@ -383,36 +345,26 @@ struct DetailSheetView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .padding(.bottom, 16)
 
-                // MARK: Detection mismatch — only when AI picked the wrong move
-                if event.status == .wrong, let detected = event.detectedAs {
-                    detectionMismatchBlock(expected: event.move.name, detected: detected)
+                if movement.isWrongTechnique,
+                   let detectedName = findMove(movement.detectedMoveId)?.name {
+                    detectionMismatchBlock(expected: movement.expectedMove.name, detected: detectedName)
                         .padding(.bottom, 16)
                 }
 
-                // MARK: Clip
-                if event.status != .correct {
+                if let url = videoURL {
                     SectionLabel("Your clip")
-                    if event.clipURL != nil {
-                        VideoPanel(label: "Recorded · 0:03", playing: $clipPlaying, annotated: false)
-                            .padding(.bottom, 20)
-                    } else {
-                        Text("Clip not available")
-                            .font(.system(size: 15))
-                            .foregroundColor(Color(UIColor.secondaryLabel))
-                            .italic()
-                            .padding(.bottom, 20)
-                    }
-                } else {
-                    Text("No clip saved — movement was rated Excellent")
-                        .font(.system(size: 15))
-                        .foregroundColor(Color(UIColor.secondaryLabel))
-                        .italic()
+                    VideoPlayer(player: playerHolder.player)
+                        .aspectRatio(9/16, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
                         .padding(.bottom, 20)
+                        .onAppear {
+                            playerHolder.load(url: url, seekTo: movement.timestamp)
+                        }
+                        .onDisappear { playerHolder.player.pause() }
                 }
 
-                // MARK: Coach note
                 SectionLabel("Coach note")
-                Text(event.note)
+                Text(PerformanceFeedback.suggestion(for: movement.expectedMove.id))
                     .font(.system(size: 15))
                     .foregroundColor(Color(UIColor.label))
                     .tracking(-0.24)
@@ -423,22 +375,13 @@ struct DetailSheetView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .padding(.bottom, 20)
 
-                // MARK: Form checklist
                 SectionLabel("Form checklist")
-                formChecklist(for: event.move.kind, status: event.status)
-                    .padding(.bottom, 20)
-
-                // MARK: Correct form reference video
-                SectionLabel("Correct form")
-                VideoPanel(label: "Reference · loop", playing: .constant(true), annotated: true)
+                formChecklist(for: movement.expectedMove.kind)
+                    .padding(.bottom, 40)
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 40)
-        }
         }
     }
-
-    // MARK: - Subviews
 
     private func moveBadge(_ text: String) -> some View {
         Text(text.uppercased())
@@ -458,12 +401,8 @@ struct DetailSheetView: View {
                 .foregroundColor(Color(UIColor.secondaryLabel))
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Expected")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color(UIColor.tertiaryLabel))
-                    Text(expected)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(Color(UIColor.label))
+                    Text("Expected").font(.system(size: 11)).foregroundColor(Color(UIColor.tertiaryLabel))
+                    Text(expected).font(.system(size: 15, weight: .semibold)).foregroundColor(Color(UIColor.label))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "arrow.right")
@@ -471,12 +410,8 @@ struct DetailSheetView: View {
                     .foregroundColor(Color(UIColor.tertiaryLabel))
                     .padding(.horizontal, 12)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Detected as")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color(UIColor.tertiaryLabel))
-                    Text(detected)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(Color(UIColor.systemRed))
+                    Text("Detected as").font(.system(size: 11)).foregroundColor(Color(UIColor.tertiaryLabel))
+                    Text(detected).font(.system(size: 15, weight: .semibold)).foregroundColor(Color(UIColor.systemRed))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -486,15 +421,14 @@ struct DetailSheetView: View {
         }
     }
 
-    private func formChecklist(for kind: Move.MoveKind, status: SessionEvent.EventStatus) -> some View {
+    private func formChecklist(for kind: Move.MoveKind) -> some View {
         let cues = formCues(for: kind)
-        let isCorrect = status == .correct
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(cues.enumerated()), id: \.offset) { i, cue in
                 HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: isCorrect ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    Image(systemName: "exclamationmark.circle.fill")
                         .font(.system(size: 16))
-                        .foregroundColor(isCorrect ? Color(UIColor.systemGreen) : accent)
+                        .foregroundColor(accent)
                         .padding(.top, 1)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(cue.title)
@@ -519,12 +453,10 @@ struct DetailSheetView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
-    // MARK: - Helpers
-
     private func kindLabel(_ kind: Move.MoveKind) -> String {
         switch kind {
-        case .jab:      return "Jab"
-        case .hook:     return "Hook"
+        case .jab: return "Jab"
+        case .hook: return "Hook"
         case .uppercut: return "Uppercut"
         }
     }
@@ -535,9 +467,9 @@ struct DetailSheetView: View {
         switch kind {
         case .jab:
             return [
-                FormCue(title: "Full extension",   detail: "Extend your arm completely and snap the wrist on impact — a half-extended jab loses both speed and power."),
-                FormCue(title: "Chin down",         detail: "Keep your chin tucked behind your lead shoulder throughout the punch to protect your jaw."),
-                FormCue(title: "Quick retraction",  detail: "Pull the fist back along the exact same line it traveled out — this resets your guard and sets up the next punch."),
+                FormCue(title: "Full extension",  detail: "Extend your arm completely and snap the wrist on impact — a half-extended jab loses both speed and power."),
+                FormCue(title: "Chin down",        detail: "Keep your chin tucked behind your lead shoulder throughout the punch to protect your jaw."),
+                FormCue(title: "Quick retraction", detail: "Pull the fist back along the exact same line it traveled out — this resets your guard and sets up the next punch."),
             ]
         case .hook:
             return [
@@ -555,6 +487,24 @@ struct DetailSheetView: View {
     }
 }
 
+// MARK: - PlayerHolder
+
+final class PlayerHolder: ObservableObject {
+    let objectWillChange = PassthroughSubject<Void, Never>()
+    let player = AVPlayer()
+
+    func load(url: URL, seekTo time: CMTime) {
+        player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        let offset   = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let seekTime = CMTimeMaximum(CMTimeSubtract(time, offset), .zero)
+        player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+            self.player.play()
+        }
+    }
+}
+
+// MARK: - Helpers
+
 private struct SectionLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
@@ -565,116 +515,6 @@ private struct SectionLabel: View {
             .foregroundColor(Color(UIColor.secondaryLabel))
             .tracking(-0.08)
             .padding(.bottom, 8)
-    }
-}
-
-private struct VideoPanel: View {
-    let label: String
-    @Binding var playing: Bool
-    let annotated: Bool
-
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            // Dark gradient background
-            RoundedRectangle(cornerRadius: 14)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.12, green: 0.11, blue: 0.10),
-                                 Color(red: 0.03, green: 0.03, blue: 0.03)],
-                        startPoint: .top, endPoint: .bottom
-                    )
-                )
-
-            // Silhouette
-            Canvas { context, size in
-                let sx = size.width / 400
-                let sy = size.height / 250
-                context.concatenate(CGAffineTransform(scaleX: sx, y: sy))
-                context.opacity = 0.45
-
-                let s = StrokeStyle(lineWidth: 0)
-                let c = Color(red: 0.04, green: 0.03, blue: 0.03)
-                let head = Path(ellipseIn: CGRect(x: 178, y: 58, width: 44, height: 44))
-                context.fill(head, with: .color(c))
-                var torso = Path()
-                torso.move(to: .init(x: 170, y: 100)); torso.addQuadCurve(to: .init(x: 230, y: 100), control: .init(x: 200, y: 92))
-                torso.addLine(to: .init(x: 240, y: 180)); torso.addQuadCurve(to: .init(x: 234, y: 250), control: .init(x: 240, y: 220))
-                torso.addLine(to: .init(x: 166, y: 250)); torso.addQuadCurve(to: .init(x: 160, y: 180), control: .init(x: 160, y: 220))
-                context.fill(torso, with: .color(c))
-                _ = s
-                var leftArm = Path()
-                leftArm.move(to: .init(x: 167, y: 110)); leftArm.addQuadCurve(to: .init(x: 145, y: 180), control: .init(x: 140, y: 140))
-                leftArm.addLine(to: .init(x: 165, y: 188)); leftArm.addQuadCurve(to: .init(x: 175, y: 115), control: .init(x: 172, y: 150))
-                context.fill(leftArm, with: .color(c))
-                var rightArm = Path()
-                rightArm.move(to: .init(x: 233, y: 110)); rightArm.addQuadCurve(to: .init(x: 255, y: 180), control: .init(x: 260, y: 140))
-                rightArm.addLine(to: .init(x: 235, y: 188)); rightArm.addQuadCurve(to: .init(x: 225, y: 115), control: .init(x: 228, y: 150))
-                context.fill(rightArm, with: .color(c))
-            }
-
-            if annotated {
-                Canvas { context, size in
-                    let sx = size.width / 400
-                    let sy = size.height / 250
-                    context.concatenate(CGAffineTransform(scaleX: sx, y: sy))
-                    let green = Color(UIColor.systemGreen)
-                    var line = Path()
-                    line.move(to: .init(x: 165, y: 130)); line.addLine(to: .init(x: 300, y: 110))
-                    context.stroke(line, with: .color(green),
-                                   style: StrokeStyle(lineWidth: 1.5 / min(sx, sy), dash: [4, 4]))
-                    let ring = Path(ellipseIn: CGRect(x: 294, y: 104, width: 12, height: 12))
-                    context.stroke(ring, with: .color(green),
-                                   style: StrokeStyle(lineWidth: 1.5 / min(sx, sy)))
-                    let dot = Path(ellipseIn: CGRect(x: 161, y: 126, width: 8, height: 8))
-                    context.fill(dot, with: .color(green))
-                }
-                Text("Extend")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Color(UIColor.systemGreen))
-                    .padding(.trailing, 20)
-                    .padding(.top, 20)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            }
-
-            if !playing {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.95))
-                        .frame(width: 56, height: 56)
-                        .shadow(radius: 10, y: 4)
-                    Triangle()
-                        .fill(Color.black)
-                        .frame(width: 18, height: 22)
-                        .offset(x: 2)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            // Label pill
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white)
-                .tracking(-0.08)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.ultraThinMaterial, in: Capsule())
-                .padding(12)
-        }
-        .aspectRatio(16/10, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .contentShape(Rectangle())
-        .onTapGesture { playing.toggle() }
-    }
-}
-
-private struct Triangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        Path { p in
-            p.move(to: .init(x: rect.minX, y: rect.minY))
-            p.addLine(to: .init(x: rect.maxX, y: rect.midY))
-            p.addLine(to: .init(x: rect.minX, y: rect.maxY))
-            p.closeSubpath()
-        }
     }
 }
 

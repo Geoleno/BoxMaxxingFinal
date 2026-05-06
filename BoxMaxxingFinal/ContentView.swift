@@ -8,7 +8,6 @@ struct ContentView: View {
     @State private var route: AppRoute = .menu
     @State private var sessionState = SessionState()
     @StateObject private var sessionManager = SessionManager()
-    @ObservedObject private var store = SessionStore.shared
 
     var body: some View {
         ZStack {
@@ -21,14 +20,6 @@ struct ContentView: View {
                     }
                     withAnimation(.easeInOut(duration: 0.25)) { route = .record }
                 }, onTestVideo: { _ in
-                    let testState = SessionState(
-                        selectedComboId: "c1",
-                        selectedMoveIds: allMoves.map(\.id),
-                        sessionLength: 2
-                    )
-                    sessionState = testState
-                    let events = generateEvents(state: testState)
-                    SessionStore.shared.save(events: events, startDate: Date(), duration: 120)
                     withAnimation(.easeInOut(duration: 0.25)) { route = .results }
                 })
                 .transition(.opacity)
@@ -49,7 +40,8 @@ struct ContentView: View {
             case .results:
                 ResultsView(
                     state: sessionState,
-                    events: store.currentEvents,
+                    wrongMovements: SessionStore.shared.wrongMovements,
+                    videoURL: SessionStore.shared.videoURL,
                     onBack: {
                         SessionRecorder.shared.deleteSessionFile()
                         SessionStore.shared.clear()
@@ -61,7 +53,6 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: route)
         .onAppear {
-            // Startup cleanup: remove any session file left over from a previous app session
             SessionRecorder.shared.deleteSessionFile()
         }
     }
