@@ -265,10 +265,16 @@ struct DetailSheetView: View {
     @StateObject private var clipHolder    = PlayerHolder()
     @StateObject private var exampleHolder = PlayerHolder()
 
-    // Drop a video named "{moveId}_example.mp4" into the Xcode project to enable this section.
-    // e.g. lj_example.mp4, rj_example.mp4
+    // Example videos — add these files to Xcode (drag into project, check "Add to target").
+    // Files live in BoxMaxxingFinal/Video/ on disk; Xcode copies them into the bundle.
     private var exampleVideoURL: URL? {
-        Bundle.main.url(forResource: "\(movement.expectedMove.id)_example", withExtension: "mp4")
+        let name: String
+        switch movement.expectedMove.id {
+        case "lj": name = "Result_Jab_Video"
+        case "rj": name = "Result_Straight_Video"
+        default:   return nil
+        }
+        return Bundle.main.url(forResource: name, withExtension: "mp4")
     }
 
     private var accent: Color {

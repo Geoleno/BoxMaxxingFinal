@@ -70,8 +70,8 @@ struct SessionState {
 // MARK: - Static Data
 
 let allMoves: [Move] = [
-    Move(id: "lj", name: "Left Jab",       short: "LJ", kind: .jab,      side: .left),
-    Move(id: "rj", name: "Right Jab",      short: "RJ", kind: .jab,      side: .right),
+    Move(id: "lj", name: "Jab",      short: "J",  kind: .jab, side: .left),
+    Move(id: "rj", name: "Straight", short: "S",  kind: .jab, side: .right),
     Move(id: "lh", name: "Left Hook",      short: "LH", kind: .hook,     side: .left),
     Move(id: "rh", name: "Right Hook",     short: "RH", kind: .hook,     side: .right),
     Move(id: "lu", name: "Left Uppercut",  short: "LU", kind: .uppercut, side: .left),
