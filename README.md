@@ -83,8 +83,9 @@ BoxMaxxingFinal/
 │   └── 80_epoch.mlmodelc         # Compiled CoreML model (80-epoch training run)
 │
 └── Video/
-    ├── Result_Jab_Video.mp4      # Good-example video for Jab
-    ├── Result_Straight_Video.mp4 # Good-example video for Straight
+    ├── Proper_Example/           # Reference clips shown in the detail sheet
+    │   ├── Result_Jab_Video.mp4
+    │   └── Result_Straight_Video.mp4
     └── Test_Clip/                # Demo wrong-movement clips (Jab-1..4, Straight-1/3/5/6)
 ```
 
