@@ -16,6 +16,8 @@ final class SessionManager: ObservableObject {
     @Published var currentSkeleton: SkeletonFrame?
     @Published var videoBufferSize: CGSize = CGSize(width: 1080, height: 1920)
     @Published var currentTargetMove: Move? = nil
+    // Always nil during recording — MovementDetector handles per-frame detection.
+    // Kept for HUD compile compatibility; removed in Task 7 cleanup.
     @Published var lastWindowResult: WindowResult? = nil
 
     // MARK: - Session Config
@@ -34,7 +36,6 @@ final class SessionManager: ObservableObject {
     private var windowTimer: Timer?
     private var currentMoveIndex = 0
     private var globalWindowIndex = 0
-    private var currentFramePredictions: [FramePrediction] = []
     private var currentWindowMoveId: String = ""
 
     // MARK: - Wrong Movement Detection
@@ -68,6 +69,7 @@ final class SessionManager: ObservableObject {
         lastWindowResult = nil
         detector.reset()
     }
+
 
     // MARK: - Session Control
 
@@ -160,7 +162,6 @@ final class SessionManager: ObservableObject {
                 let newSize = CGSize(width: bufferWidth, height: bufferHeight)
                 if self.videoBufferSize != newSize { self.videoBufferSize = newSize }
                 self.currentSkeleton = skeleton
-                self.currentFramePredictions.append(prediction)
                 if let wrong = self.detector.process(prediction: prediction,
                                                       timestamp: timestamp,
                                                       expectedMoveId: self.currentWindowMoveId) {
@@ -192,7 +193,6 @@ final class SessionManager: ObservableObject {
         currentWindowMoveId = moveId
         currentTargetMove = findMove(moveId)
         audioCuePlayer.playAudioCue(for: moveId)
-        currentFramePredictions = []
 
         windowTimer = Timer.scheduledTimer(withTimeInterval: moveWindowDuration, repeats: false) { [weak self] _ in
             self?.endMoveWindow()
@@ -201,7 +201,6 @@ final class SessionManager: ObservableObject {
 
     private func endMoveWindow() {
         guard isRecording else { return }
-        currentFramePredictions = []
         globalWindowIndex += 1
         currentMoveIndex += 1
         beginMoveWindow()
