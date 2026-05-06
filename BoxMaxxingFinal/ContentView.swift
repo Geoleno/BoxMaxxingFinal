@@ -16,6 +16,10 @@ struct ContentView: View {
     @State private var sessionState = SessionState()
     @StateObject private var sessionManager = SessionManager()
 
+    // Held in state so ResultsView always reads the snapshot set at navigation time
+    @State private var resultsMovements: [WrongMovement] = []
+    @State private var resultsVideoURL: URL? = nil
+
     var body: some View {
         ZStack {
             switch route {
@@ -27,14 +31,11 @@ struct ContentView: View {
                     }
                     withAnimation(.easeInOut(duration: 0.25)) { route = .record }
                 }, onTestVideo: { _ in
-                    // Load demo data for presentation: The 1-2 combo (left jab + right jab), 2-minute session
                     sessionState = SessionState(selectedComboId: "c1",
                                                selectedMoveIds: ["lj", "rj"],
                                                sessionLength: 2)
-                    SessionStore.shared.save(movements: generateDemoWrongMovements(),
-                                            videoURL: nil,
-                                            startDate: Date(),
-                                            duration: 120)
+                    resultsMovements = generateDemoWrongMovements()
+                    resultsVideoURL  = nil
                     withAnimation(.easeInOut(duration: 0.25)) { route = .results }
                 })
                 .transition(.opacity)
@@ -43,6 +44,8 @@ struct ContentView: View {
                 RecordingView(
                     state: sessionState,
                     onFinish: {
+                        resultsMovements = SessionStore.shared.wrongMovements
+                        resultsVideoURL  = SessionStore.shared.videoURL
                         withAnimation(.easeInOut(duration: 0.25)) { route = .results }
                     },
                     onCancel: {
@@ -55,11 +58,13 @@ struct ContentView: View {
             case .results:
                 ResultsView(
                     state: sessionState,
-                    wrongMovements: SessionStore.shared.wrongMovements,
-                    videoURL: SessionStore.shared.videoURL,
+                    wrongMovements: resultsMovements,
+                    videoURL: resultsVideoURL,
                     onBack: {
                         SessionRecorder.shared.deleteSessionFile()
                         SessionStore.shared.clear()
+                        resultsMovements = []
+                        resultsVideoURL  = nil
                         withAnimation(.easeInOut(duration: 0.25)) { route = .menu }
                     }
                 )
