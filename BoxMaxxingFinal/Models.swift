@@ -101,18 +101,20 @@ func generateDemoWrongMovements() -> [WrongMovement] {
     let lj = findMove("lj")!
     let rj = findMove("rj")!
 
-    // Timestamps match the 3-second combo window rhythm across 2 minutes
+    // Timestamps match the 3-second combo window rhythm across 2 minutes.
+    // Red (wrong technique): conf < 40% — detected a different punch entirely.
+    // Yellow (bad execution): conf 50–79% — right punch, below the 80% quality threshold.
     let entries: [(secs: Int, expectedId: String, detectedId: String, conf: Float)] = [
-        (3,   "lj", "rj",  Float.random(in: 0.72...0.92)),  // red  — wrong side
-        (9,   "rj", "rj",  Float.random(in: 0.42...0.68)),  // yellow — weak execution
-        (18,  "lj", "lj",  Float.random(in: 0.50...0.72)),  // yellow — low confidence
-        (30,  "rj", "lj",  Float.random(in: 0.75...0.90)),  // red  — wrong side
-        (45,  "lj", "lj",  Float.random(in: 0.38...0.62)),  // yellow — very low confidence
-        (60,  "rj", "rj",  Float.random(in: 0.48...0.70)),  // yellow
-        (78,  "lj", "rj",  Float.random(in: 0.68...0.88)),  // red
-        (93,  "rj", "lj",  Float.random(in: 0.70...0.85)),  // red
-        (108, "lj", "lj",  Float.random(in: 0.44...0.66)),  // yellow
-        (117, "rj", "rj",  Float.random(in: 0.40...0.60)),  // yellow
+        (3,   "lj", "rj",  Float.random(in: 0.18...0.38)),  // red  — threw right jab instead of left
+        (9,   "rj", "rj",  Float.random(in: 0.52...0.72)),  // yellow — weak execution
+        (18,  "lj", "lj",  Float.random(in: 0.55...0.75)),  // yellow — low confidence
+        (30,  "rj", "lj",  Float.random(in: 0.20...0.36)),  // red   — threw left jab instead of right
+        (45,  "lj", "lj",  Float.random(in: 0.50...0.70)),  // yellow — borderline
+        (60,  "rj", "rj",  Float.random(in: 0.53...0.73)),  // yellow
+        (78,  "lj", "rj",  Float.random(in: 0.15...0.35)),  // red   — wrong side
+        (93,  "rj", "lj",  Float.random(in: 0.22...0.38)),  // red   — wrong side
+        (108, "lj", "lj",  Float.random(in: 0.51...0.69)),  // yellow
+        (117, "rj", "rj",  Float.random(in: 0.54...0.74)),  // yellow
     ]
 
     return entries.map { entry in

@@ -13,8 +13,8 @@ struct ResultsView: View {
     @State private var activeMovement: WrongMovement? = nil
 
     private var total: Int { state.sessionLength * 60 }
-    private var wrongCount: Int        { wrongMovements.count }
-    private var badTechniqueCount: Int { wrongMovements.filter { $0.isWrongTechnique }.count }
+    private var wrongTechniqueCount: Int { wrongMovements.filter { $0.isWrongTechnique }.count }
+    private var badExecutionCount: Int   { wrongMovements.filter { !$0.isWrongTechnique }.count }
     private var avgConf: Int {
         guard !wrongMovements.isEmpty else { return 0 }
         let sum = wrongMovements.reduce(0.0) { $0 + Double($1.confidence) }
@@ -43,8 +43,8 @@ struct ResultsView: View {
                     .padding(.bottom, 8)
 
                     HStack(spacing: 8) {
-                        StatCard(label: "Wrong",         value: "\(wrongCount)",        color: Color(UIColor.systemRed))
-                        StatCard(label: "Bad technique", value: "\(badTechniqueCount)", color: Color(UIColor.systemYellow))
+                        StatCard(label: "Wrong technique", value: "\(wrongTechniqueCount)", color: Color(UIColor.systemRed))
+                        StatCard(label: "Bad execution",  value: "\(badExecutionCount)",   color: Color(UIColor.systemYellow))
                         StatCard(label: "Avg Conf",      value: "\(avgConf)%",          color: Color(UIColor.label))
                     }
                     .padding(.horizontal, 20)
