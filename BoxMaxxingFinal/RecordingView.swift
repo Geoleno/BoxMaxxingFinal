@@ -25,8 +25,8 @@ struct RecordingView: View {
 
     var body: some View {
         ZStack {
-            CameraPreviewView(onFrame: { [sessionManager] buffer in
-                sessionManager.processFrame(buffer)
+            CameraPreviewView(onFrame: { [sessionManager] buffer, timestamp in
+                sessionManager.processFrame(buffer, timestamp: timestamp)
             })
             .ignoresSafeArea()
 
@@ -127,7 +127,7 @@ struct RecordingView: View {
 // MARK: - Camera Preview
 
 struct CameraPreviewView: UIViewRepresentable {
-    var onFrame: ((CVPixelBuffer) -> Void)?
+    var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
     func makeUIView(context: Context) -> CameraView {
         let view = CameraView()
@@ -140,7 +140,7 @@ struct CameraPreviewView: UIViewRepresentable {
 }
 
 final class CameraView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate {
-    var onFrame: ((CVPixelBuffer) -> Void)?
+    var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
@@ -206,7 +206,8 @@ final class CameraView: UIView, AVCaptureVideoDataOutputSampleBufferDelegate {
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        onFrame?(pixelBuffer)
+        let pts = sampleBuffer.presentationTimeStamp
+        onFrame?(pixelBuffer, pts)
     }
 
     deinit {
