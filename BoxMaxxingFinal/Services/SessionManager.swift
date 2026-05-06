@@ -16,9 +16,6 @@ final class SessionManager: ObservableObject {
     @Published var currentSkeleton: SkeletonFrame?
     @Published var videoBufferSize: CGSize = CGSize(width: 1080, height: 1920)
     @Published var currentTargetMove: Move? = nil
-    // Always nil during recording — MovementDetector handles per-frame detection.
-    // Kept for HUD compile compatibility; removed in Task 7 cleanup.
-    @Published var lastWindowResult: WindowResult? = nil
 
     // MARK: - Session Config
 
@@ -66,7 +63,6 @@ final class SessionManager: ObservableObject {
         liveWrongMovements = []
         currentWindowMoveId = ""
         currentTargetMove = nil
-        lastWindowResult = nil
         detector.reset()
     }
 
@@ -116,7 +112,6 @@ final class SessionManager: ObservableObject {
         isRecording       = false
         currentSkeleton   = nil
         currentTargetMove = nil
-        lastWindowResult  = nil
         isAnalyzing       = true
 
         let movementsSnapshot = liveWrongMovements

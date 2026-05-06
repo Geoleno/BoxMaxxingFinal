@@ -2,6 +2,11 @@ import AVFoundation
 import Vision
 import Foundation
 
+// MARK: - Future scaffolding
+// PostSessionAnalyzer is not called anywhere in the live recording path.
+// analyze() is a stub reserved for an optional offline re-analysis pass.
+// groupWindows() and selectRepresentative() are tested utilities kept for that future use.
+
 struct WindowPrediction: Equatable {
     let label: String
     let confidence: Float
