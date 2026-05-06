@@ -39,6 +39,7 @@ struct WrongMovement: Identifiable {
     let expectedMove: Move
     let detectedMoveId: String
     let confidence: Float
+    var clipURL: URL? = nil  // pre-assigned clip for demo; nil uses full session video + seek
 
     var isWrongTechnique: Bool { detectedMoveId != expectedMove.id }
 }
@@ -101,20 +102,30 @@ func generateDemoWrongMovements() -> [WrongMovement] {
     let lj = findMove("lj")!
     let rj = findMove("rj")!
 
+    // Clip pools — files live in BoxMaxxingFinal/Video/Test_Clip/ and must be added to the Xcode target.
+    let jabClips      = ["Jab-1", "Jab-2", "Jab-3", "Jab-4"]
+    let straightClips = ["Straight-1", "Straight-3", "Straight-5", "Straight-6"]
+
+    func randomClip(for moveId: String) -> URL? {
+        let pool = moveId == "lj" ? jabClips : straightClips
+        guard let name = pool.randomElement() else { return nil }
+        return Bundle.main.url(forResource: name, withExtension: "mp4")
+    }
+
     // Timestamps match the 3-second combo window rhythm across 2 minutes.
     // Red (wrong technique): conf < 40% — detected a different punch entirely.
     // Yellow (bad execution): conf 50–79% — right punch, below the 80% quality threshold.
     let entries: [(secs: Int, expectedId: String, detectedId: String, conf: Float)] = [
-        (3,   "lj", "rj",  Float.random(in: 0.18...0.38)),  // red  — threw right jab instead of left
-        (9,   "rj", "rj",  Float.random(in: 0.52...0.72)),  // yellow — weak execution
-        (18,  "lj", "lj",  Float.random(in: 0.55...0.75)),  // yellow — low confidence
-        (30,  "rj", "lj",  Float.random(in: 0.20...0.36)),  // red   — threw left jab instead of right
-        (45,  "lj", "lj",  Float.random(in: 0.50...0.70)),  // yellow — borderline
-        (60,  "rj", "rj",  Float.random(in: 0.53...0.73)),  // yellow
-        (78,  "lj", "rj",  Float.random(in: 0.15...0.35)),  // red   — wrong side
-        (93,  "rj", "lj",  Float.random(in: 0.22...0.38)),  // red   — wrong side
-        (108, "lj", "lj",  Float.random(in: 0.51...0.69)),  // yellow
-        (117, "rj", "rj",  Float.random(in: 0.54...0.74)),  // yellow
+        (3,   "lj", "rj",  Float.random(in: 0.18...0.38)),
+        (9,   "rj", "rj",  Float.random(in: 0.52...0.72)),
+        (18,  "lj", "lj",  Float.random(in: 0.55...0.75)),
+        (30,  "rj", "lj",  Float.random(in: 0.20...0.36)),
+        (45,  "lj", "lj",  Float.random(in: 0.50...0.70)),
+        (60,  "rj", "rj",  Float.random(in: 0.53...0.73)),
+        (78,  "lj", "rj",  Float.random(in: 0.15...0.35)),
+        (93,  "rj", "lj",  Float.random(in: 0.22...0.38)),
+        (108, "lj", "lj",  Float.random(in: 0.51...0.69)),
+        (117, "rj", "rj",  Float.random(in: 0.54...0.74)),
     ]
 
     return entries.map { entry in
@@ -123,7 +134,8 @@ func generateDemoWrongMovements() -> [WrongMovement] {
             timestamp:      CMTime(seconds: Double(entry.secs), preferredTimescale: 600),
             expectedMove:   expected,
             detectedMoveId: entry.detectedId,
-            confidence:     entry.conf
+            confidence:     entry.conf,
+            clipURL:        randomClip(for: entry.expectedId)
         )
     }
 }

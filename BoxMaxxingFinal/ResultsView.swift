@@ -365,14 +365,17 @@ struct DetailSheetView: View {
                         .padding(.bottom, 16)
                 }
 
-                if let url = videoURL {
+                let clipSource = movement.clipURL ?? videoURL
+                if let url = clipSource {
                     SectionLabel("Your clip")
                     VideoPlayer(player: clipHolder.player)
                         .aspectRatio(clipHolder.aspectRatio, contentMode: .fit)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                         .padding(.bottom, 20)
                         .onAppear {
-                            clipHolder.load(url: url, seekTo: movement.timestamp)
+                            // Dedicated clip: play from start. Session video: seek to timestamp.
+                            let seekTo = movement.clipURL != nil ? .zero : movement.timestamp
+                            clipHolder.load(url: url, seekTo: seekTo)
                         }
                 }
 
