@@ -40,7 +40,7 @@ final class MLInferenceEngine {
 
     func loadModel() {
         do {
-            guard let url = Bundle.main.url(forResource: "80 epoch", withExtension: "mlmodel") else {
+            guard let url = Bundle.main.url(forResource: "80_epoch", withExtension: "mlmodelc") else {
                 print("MLInferenceEngine: Model file not found in bundle")
                 return
             }
