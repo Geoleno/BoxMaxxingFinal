@@ -3,10 +3,6 @@ import SwiftUI
 //camelCase  -> variable, constant -> non object func / var / let / guard let abc = asda
 //PascalCase -> struct/class/enum -> object
 
-enum BoxingType {
-    case upperCut, jab, cross
-}
-
 struct ContentView: View {
     enum AppRoute {
         case menu, record, results
@@ -31,11 +27,7 @@ struct ContentView: View {
                     }
                     withAnimation(.easeInOut(duration: 0.25)) { route = .record }
                 }, onTestVideo: { _ in
-                    sessionState = SessionState(selectedComboId: "c1",
-                                               selectedMoveIds: ["lj", "rj"],
-                                               sessionLength: 2)
-                    resultsMovements = generateDemoWrongMovements()
-                    resultsVideoURL  = nil
+                    loadDemoSession()
                     withAnimation(.easeInOut(duration: 0.25)) { route = .results }
                 })
                 .transition(.opacity)
@@ -45,11 +37,7 @@ struct ContentView: View {
                     state: sessionState,
                     onFinish: {
                         // Always show demo results for presentation
-                        sessionState = SessionState(selectedComboId: "c1",
-                                                   selectedMoveIds: ["lj", "rj"],
-                                                   sessionLength: 2)
-                        resultsMovements = generateDemoWrongMovements()
-                        resultsVideoURL  = nil
+                        loadDemoSession()
                         withAnimation(.easeInOut(duration: 0.25)) { route = .results }
                     },
                     onCancel: {
@@ -79,6 +67,12 @@ struct ContentView: View {
         .onAppear {
             SessionRecorder.shared.deleteSessionFile()
         }
+    }
+
+    private func loadDemoSession() {
+        sessionState     = SessionState(selectedComboId: "c1", selectedMoveIds: ["lj", "rj"], sessionLength: 2)
+        resultsMovements = generateDemoWrongMovements()
+        resultsVideoURL  = nil
     }
 }
 

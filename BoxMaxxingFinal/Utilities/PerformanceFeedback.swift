@@ -38,3 +38,30 @@ enum PerformanceFeedback {
         "No movement was detected during this window. Make sure you execute the move clearly and fully within the 3-second window."
     }
 }
+
+// MARK: - Form Cues
+
+struct FormCue { let title: String; let detail: String }
+
+func formCues(for kind: Move.MoveKind) -> [FormCue] {
+    switch kind {
+    case .jab:
+        return [
+            FormCue(title: "Full extension",  detail: "Extend your arm completely and snap the wrist on impact — a half-extended jab loses both speed and power."),
+            FormCue(title: "Chin down",        detail: "Keep your chin tucked behind your lead shoulder throughout the punch to protect your jaw."),
+            FormCue(title: "Quick retraction", detail: "Pull the fist back along the exact same line it traveled out — this resets your guard and sets up the next punch."),
+        ]
+    case .hook:
+        return [
+            FormCue(title: "Pivot the lead foot", detail: "Rotate on the ball of your foot as you throw — hip rotation is the main power source for the hook."),
+            FormCue(title: "Elbow parallel",      detail: "Keep the elbow at shoulder height and parallel to the floor. High or low elbows telegraph the punch and reduce power."),
+            FormCue(title: "Rear hand stays up",  detail: "Keep the rear glove high on your cheek while the lead arm swings — don't leave your head exposed."),
+        ]
+    case .uppercut:
+        return [
+            FormCue(title: "Dip the shoulder first", detail: "Lower your same-side shoulder slightly before driving up — this loads the punch and hides the tell."),
+            FormCue(title: "Drive with the legs",    detail: "Push through the floor and extend the knees. Power comes from the ground up, not from the arm alone."),
+            FormCue(title: "Tight elbow path",       detail: "Keep the elbow close to your body as the fist rises — a wide elbow wastes energy and exposes your ribs."),
+        ]
+    }
+}

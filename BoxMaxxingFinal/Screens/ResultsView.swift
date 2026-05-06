@@ -13,13 +13,7 @@ struct ResultsView: View {
     @State private var activeMovement: WrongMovement? = nil
 
     private var total: Int { state.sessionLength * 60 }
-    private var wrongTechniqueCount: Int { wrongMovements.filter { $0.isWrongTechnique }.count }
-    private var badExecutionCount: Int   { wrongMovements.filter { !$0.isWrongTechnique }.count }
-    private var avgConf: Int {
-        guard !wrongMovements.isEmpty else { return 0 }
-        let sum = wrongMovements.reduce(0.0) { $0 + Double($1.confidence) }
-        return Int(sum / Double(wrongMovements.count) * 100)
-    }
+    private var stats: SessionStatistics { SessionStatistics(movements: wrongMovements) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,9 +37,9 @@ struct ResultsView: View {
                     .padding(.bottom, 8)
 
                     HStack(spacing: 8) {
-                        StatCard(label: "Wrong Technique", value: "\(wrongTechniqueCount)", color: Color(UIColor.systemRed))
-                        StatCard(label: "Bad Execution",  value: "\(badExecutionCount)",   color: Color(UIColor.systemYellow))
-                        StatCard(label: "Score",      value: "\(avgConf)%",          color: Color(UIColor.label))
+                        StatCard(label: "Wrong Technique", value: "\(stats.wrongTechniqueCount)", color: Color(UIColor.systemRed))
+                        StatCard(label: "Bad Execution",  value: "\(stats.badExecutionCount)",   color: Color(UIColor.systemYellow))
+                        StatCard(label: "Score",      value: "\(stats.avgConfidence)%",          color: Color(UIColor.label))
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
@@ -492,61 +486,6 @@ struct DetailSheetView: View {
         }
     }
 
-    private struct FormCue { let title: String; let detail: String }
-
-    private func formCues(for kind: Move.MoveKind) -> [FormCue] {
-        switch kind {
-        case .jab:
-            return [
-                FormCue(title: "Full extension",  detail: "Extend your arm completely and snap the wrist on impact — a half-extended jab loses both speed and power."),
-                FormCue(title: "Chin down",        detail: "Keep your chin tucked behind your lead shoulder throughout the punch to protect your jaw."),
-                FormCue(title: "Quick retraction", detail: "Pull the fist back along the exact same line it traveled out — this resets your guard and sets up the next punch."),
-            ]
-        case .hook:
-            return [
-                FormCue(title: "Pivot the lead foot", detail: "Rotate on the ball of your foot as you throw — hip rotation is the main power source for the hook."),
-                FormCue(title: "Elbow parallel",      detail: "Keep the elbow at shoulder height and parallel to the floor. High or low elbows telegraph the punch and reduce power."),
-                FormCue(title: "Rear hand stays up",  detail: "Keep the rear glove high on your cheek while the lead arm swings — don't leave your head exposed."),
-            ]
-        case .uppercut:
-            return [
-                FormCue(title: "Dip the shoulder first", detail: "Lower your same-side shoulder slightly before driving up — this loads the punch and hides the tell."),
-                FormCue(title: "Drive with the legs",    detail: "Push through the floor and extend the knees. Power comes from the ground up, not from the arm alone."),
-                FormCue(title: "Tight elbow path",       detail: "Keep the elbow close to your body as the fist rises — a wide elbow wastes energy and exposes your ribs."),
-            ]
-        }
-    }
-}
-
-// MARK: - PlayerHolder
-
-final class PlayerHolder: ObservableObject {
-    @Published var player = AVPlayer()
-    @Published var aspectRatio: CGFloat = 9 / 16  // updated once the track loads
-
-    func load(url: URL, seekTo time: CMTime) {
-        let asset = AVAsset(url: url)
-        player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
-
-        Task {
-            guard let track = try? await asset.loadTracks(withMediaType: .video).first else { return }
-            let naturalSize = (try? await track.load(.naturalSize)) ?? CGSize(width: 9, height: 16)
-            let transform   = (try? await track.load(.preferredTransform)) ?? .identity
-            let displayed   = naturalSize.applying(transform)
-            let w = abs(displayed.width)
-            let h = abs(displayed.height)
-            await MainActor.run {
-                if w > 0 && h > 0 { self.aspectRatio = w / h }
-            }
-        }
-
-        let offset   = CMTime(seconds: 0.5, preferredTimescale: 600)
-        let seekTime = CMTimeMaximum(CMTimeSubtract(time, offset), .zero)
-        player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-            guard finished, let self else { return }
-            self.player.play()
-        }
-    }
 }
 
 // MARK: - Helpers

@@ -1,12 +1,9 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct MenuView: View {
     @Binding var state: SessionState
     let onStart: () -> Void
     var onTestVideo: ((URL) -> Void)? = nil
-
-    @State private var showTestSheet = false
 
     var body: some View {
 
@@ -18,32 +15,16 @@ struct MenuView: View {
         }
         .background(Color(UIColor.systemBackground))
         .ignoresSafeArea()
-        .sheet(isPresented: $showTestSheet) {
-            TestVideoSheet { url in
-                showTestSheet = false
-                onTestVideo?(url)
-            }
-            .presentationDetents([.medium])
-            .presentationDragIndicator(.visible)
-        }
     }
 
     // MARK: - Title
 
     private var titleSection: some View {
         VStack(alignment: .leading, spacing: 5) {
-//            Text("BoxMaxxing")
-//                .font(.system(size: 13, weight: .semibold))
-//                .foregroundColor(Color(UIColor.systemRed))
-//                .tracking(-0.08)
             Text("Pick Your Combo!")
                 .font(.system(size: 30, weight: .bold))
                 .tracking(0.5)
                 .foregroundColor(Color(UIColor.systemRed))
-//            Text("Pick your combo, then train.")
-//                .font(.system(size: 13))
-//                .foregroundColor(Color(UIColor.secondaryLabel))
-//                .tracking(-0.08)
             HStack(spacing: 5) {
                 Image(systemName: "clock")
                     .font(.system(size: 12))
@@ -154,16 +135,6 @@ struct MenuView: View {
                     )
             }
             .disabled(!enabled)
-
-//            Button(action: { showTestSheet = true }) {
-//                HStack(spacing: 6) {
-//                    Image(systemName: "film.stack")
-//                        .font(.system(size: 14))
-//                    Text("Test with Video")
-//                        .font(.system(size: 14, weight: .medium))
-//                }
-//                .foregroundColor(Color(UIColor.secondaryLabel))
-//            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 26)
@@ -299,83 +270,6 @@ private struct MoveCard: View {
         .animation(.easeInOut(duration: 0.15), value: inCombo)
     }
 }
-// MARK: - Test Video Sheet
-
-private struct TestVideoSheet: View {
-    let onVideoPicked: (URL) -> Void
-
-    @State private var showPicker = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 8) {
-                Image(systemName: "film.stack")
-                    .font(.system(size: 36))
-                    .foregroundColor(Color(UIColor.systemRed))
-                    .padding(.bottom, 4)
-                Text("Test with Video")
-                    .font(.system(size: 20, weight: .bold))
-                Text("Select a .mov file to run a mock analysis and preview the Results page.")
-                    .font(.system(size: 14))
-                    .foregroundColor(Color(UIColor.secondaryLabel))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-            }
-            .padding(.top, 36)
-            .padding(.bottom, 32)
-
-            Button(action: { showPicker = true }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "folder")
-                    Text("Choose Video File")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.systemRed)))
-            }
-            .padding(.horizontal, 24)
-        }
-        .sheet(isPresented: $showPicker) {
-            DocumentPicker(contentTypes: [UTType.movie, UTType.mpeg4Movie]) { url in
-                showPicker = false
-                onVideoPicked(url)
-            }
-        }
-    }
-}
-
-// MARK: - Document Picker
-
-private struct DocumentPicker: UIViewControllerRepresentable {
-    let contentTypes: [UTType]
-    let onPick: (URL) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
-
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes)
-        picker.delegate = context.coordinator
-        picker.allowsMultipleSelection = false
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
-
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let onPick: (URL) -> Void
-        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
-
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            guard let url = urls.first else { return }
-            let accessed = url.startAccessingSecurityScopedResource()
-            onPick(url)
-            if accessed { url.stopAccessingSecurityScopedResource() }
-        }
-    }
-}
-
 #Preview {
     ContentView()
 }

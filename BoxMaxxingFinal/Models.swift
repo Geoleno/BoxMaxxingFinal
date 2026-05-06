@@ -68,6 +68,21 @@ struct SessionState {
     var sessionLength: Int = 2
 }
 
+// MARK: - Session Statistics
+
+struct SessionStatistics {
+    let wrongTechniqueCount: Int
+    let badExecutionCount: Int
+    let avgConfidence: Int
+
+    init(movements: [WrongMovement]) {
+        wrongTechniqueCount = movements.filter { $0.isWrongTechnique }.count
+        badExecutionCount   = movements.filter { !$0.isWrongTechnique }.count
+        let sum = movements.reduce(0.0) { $0 + Double($1.confidence) }
+        avgConfidence = movements.isEmpty ? 0 : Int(sum / Double(movements.count) * 100)
+    }
+}
+
 // MARK: - Static Data
 
 let allMoves: [Move] = [
