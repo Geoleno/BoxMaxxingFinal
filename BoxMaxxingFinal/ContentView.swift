@@ -44,8 +44,12 @@ struct ContentView: View {
                 RecordingView(
                     state: sessionState,
                     onFinish: {
-                        resultsMovements = SessionStore.shared.wrongMovements
-                        resultsVideoURL  = SessionStore.shared.videoURL
+                        // Always show demo results for presentation
+                        sessionState = SessionState(selectedComboId: "c1",
+                                                   selectedMoveIds: ["lj", "rj"],
+                                                   sessionLength: 2)
+                        resultsMovements = generateDemoWrongMovements()
+                        resultsVideoURL  = nil
                         withAnimation(.easeInOut(duration: 0.25)) { route = .results }
                     },
                     onCancel: {

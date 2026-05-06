@@ -101,18 +101,18 @@ func generateDemoWrongMovements() -> [WrongMovement] {
     let lj = findMove("lj")!
     let rj = findMove("rj")!
 
-    // Fixed timestamps spread across 2 minutes so the timeline looks realistic
+    // Timestamps match the 3-second combo window rhythm across 2 minutes
     let entries: [(secs: Int, expectedId: String, detectedId: String, conf: Float)] = [
-        (8,   "lj", "rj",  Float.random(in: 0.72...0.92)),  // red  — threw right instead of left
-        (19,  "rj", "rj",  Float.random(in: 0.42...0.68)),  // yellow — right move, weak execution
-        (31,  "lj", "lj",  Float.random(in: 0.50...0.72)),  // yellow — low confidence
-        (44,  "rj", "lj",  Float.random(in: 0.75...0.90)),  // red  — wrong side
-        (57,  "lj", "lj",  Float.random(in: 0.38...0.62)),  // yellow — very low confidence
-        (68,  "rj", "rj",  Float.random(in: 0.48...0.70)),  // yellow
-        (79,  "lj", "rj",  Float.random(in: 0.68...0.88)),  // red
-        (91,  "rj", "lj",  Float.random(in: 0.70...0.85)),  // red
-        (103, "lj", "lj",  Float.random(in: 0.44...0.66)),  // yellow
-        (115, "rj", "rj",  Float.random(in: 0.40...0.60)),  // yellow
+        (3,   "lj", "rj",  Float.random(in: 0.72...0.92)),  // red  — wrong side
+        (9,   "rj", "rj",  Float.random(in: 0.42...0.68)),  // yellow — weak execution
+        (18,  "lj", "lj",  Float.random(in: 0.50...0.72)),  // yellow — low confidence
+        (30,  "rj", "lj",  Float.random(in: 0.75...0.90)),  // red  — wrong side
+        (45,  "lj", "lj",  Float.random(in: 0.38...0.62)),  // yellow — very low confidence
+        (60,  "rj", "rj",  Float.random(in: 0.48...0.70)),  // yellow
+        (78,  "lj", "rj",  Float.random(in: 0.68...0.88)),  // red
+        (93,  "rj", "lj",  Float.random(in: 0.70...0.85)),  // red
+        (108, "lj", "lj",  Float.random(in: 0.44...0.66)),  // yellow
+        (117, "rj", "rj",  Float.random(in: 0.40...0.60)),  // yellow
     ]
 
     return entries.map { entry in
