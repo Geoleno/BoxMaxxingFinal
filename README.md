@@ -50,13 +50,22 @@ An iOS boxing training app that uses the device camera to analyse punch techniqu
 BoxMaxxingFinal/
 ├── BoxMaxxingFinalApp.swift      # App entry point, portrait-orientation lock
 ├── ContentView.swift             # Root router (menu → record → results)
-├── MenuView.swift                # Combo selection and session start
-├── RecordingView.swift           # Live camera feed, HUD, skeleton overlay
-├── ResultsView.swift             # Session timeline, stat cards, detail sheet
-├── Models.swift                  # Data models + demo data generator
-├── MoveGlyphView.swift           # Punch icon component
+├── Models.swift                  # All data models, SessionStatistics, demo data generator
 │
-├── Services/
+├── Screens/                      # Full-screen views — no business logic
+│   ├── MenuView.swift            # Combo selection and session start
+│   ├── RecordingView.swift       # Live camera feed, HUD, skeleton overlay
+│   └── ResultsView.swift         # Session timeline, stat cards, detail sheet
+│
+├── Views/                        # Reusable sub-views and UIKit bridges
+│   ├── CameraView.swift          # AVFoundation camera capture (UIViewRepresentable)
+│   └── SkeletonOverlayView.swift # Canvas-based skeleton renderer
+│
+├── ReusableComponents/           # Self-contained components used across screens
+│   ├── MoveGlyphView.swift       # Punch icon component
+│   └── PlayerHolder.swift        # AVPlayer wrapper with adaptive aspect ratio
+│
+├── Services/                     # Business logic and data services
 │   ├── SessionManager.swift      # Recording lifecycle, frame processing
 │   ├── MovementDetector.swift    # 3-frame confirmation state machine
 │   ├── MLInferenceEngine.swift   # CoreML model loading and inference
@@ -66,13 +75,9 @@ BoxMaxxingFinal/
 │   ├── AudioCuePlayer.swift      # Plays punch-name audio cues
 │   └── PostSessionAnalyzer.swift # Scaffolding for future offline analysis
 │
-├── Views/
-│   └── SkeletonOverlayView.swift # Canvas-based skeleton renderer
-│
-├── Utilities/
+├── Utilities/                    # Stateless helpers
 │   ├── ColorExtensions.swift     # Confidence → colour mapping
-│   ├── PerformanceFeedback.swift # Coach notes per move
-│   └── ResultExporter.swift      # Export helper
+│   └── PerformanceFeedback.swift # Coach notes and form cues per move
 │
 ├── BoxMaxxingModel/
 │   └── 80_epoch.mlmodelc         # Compiled CoreML model (80-epoch training run)
