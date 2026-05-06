@@ -261,7 +261,6 @@ struct DetailSheetView: View {
     let movement: WrongMovement
     let videoURL: URL?
     @StateObject private var playerHolder = PlayerHolder()
-    @Environment(\.dismiss) private var dismiss
 
     private var accent: Color {
         Color.performanceColor(for: movement.confidence)
@@ -360,7 +359,6 @@ struct DetailSheetView: View {
                         .onAppear {
                             playerHolder.load(url: url, seekTo: movement.timestamp)
                         }
-                        .onDisappear { playerHolder.player.pause() }
                 }
 
                 SectionLabel("Coach note")
@@ -381,6 +379,7 @@ struct DetailSheetView: View {
             }
             .padding(.horizontal, 20)
         }
+        .onDisappear { playerHolder.player.pause() }
     }
 
     private func moveBadge(_ text: String) -> some View {
@@ -490,14 +489,14 @@ struct DetailSheetView: View {
 // MARK: - PlayerHolder
 
 final class PlayerHolder: ObservableObject {
-    let objectWillChange = PassthroughSubject<Void, Never>()
-    let player = AVPlayer()
+    @Published var player = AVPlayer()
 
     func load(url: URL, seekTo time: CMTime) {
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
         let offset   = CMTime(seconds: 0.5, preferredTimescale: 600)
         let seekTime = CMTimeMaximum(CMTimeSubtract(time, offset), .zero)
-        player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+        player.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
+            guard finished, let self else { return }
             self.player.play()
         }
     }
