@@ -1,4 +1,5 @@
 import Foundation
+import CoreMedia
 import Vision
 
 // MARK: - Move
@@ -82,6 +83,18 @@ struct LivePunch: Identifiable {
     let move: Move
     let confidence: Double
     let timestamp: Date
+}
+
+// MARK: - Wrong Movement
+
+struct WrongMovement: Identifiable {
+    let id = UUID()
+    let timestamp: CMTime
+    let expectedMove: Move
+    let detectedMoveId: String
+    let confidence: Float
+
+    var isWrongTechnique: Bool { detectedMoveId != expectedMove.id }
 }
 
 // MARK: - Window Result (for live HUD feedback)
