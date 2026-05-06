@@ -44,7 +44,7 @@ struct ResultsView: View {
 
                     HStack(spacing: 8) {
                         StatCard(label: "Wrong",         value: "\(wrongCount)",        color: Color(UIColor.systemRed))
-                        StatCard(label: "Bad technique", value: "\(badTechniqueCount)", color: Color(UIColor.systemOrange))
+                        StatCard(label: "Bad technique", value: "\(badTechniqueCount)", color: Color(UIColor.systemYellow))
                         StatCard(label: "Avg Conf",      value: "\(avgConf)%",          color: Color(UIColor.label))
                     }
                     .padding(.horizontal, 20)
@@ -58,7 +58,7 @@ struct ResultsView: View {
                         Spacer()
                         HStack(spacing: 12) {
                             LegendDot(color: Color(UIColor.systemRed),    label: "Wrong technique")
-                            LegendDot(color: Color(UIColor.systemOrange), label: "Bad execution")
+                            LegendDot(color: Color(UIColor.systemYellow), label: "Bad execution")
                         }
                         .font(.system(size: 13))
                         .foregroundColor(Color(UIColor.secondaryLabel))
@@ -161,7 +161,7 @@ private struct WrongMovementTimelineView: View {
     }
 
     private func movementRow(_ movement: WrongMovement) -> some View {
-        let accent: Color = movement.isWrongTechnique ? Color(UIColor.systemRed) : Color(UIColor.systemOrange)
+        let accent: Color = movement.isWrongTechnique ? Color(UIColor.systemRed) : Color(UIColor.systemYellow)
         let statusLabel   = movement.isWrongTechnique ? "Wrong technique" : "Bad execution"
         let secs          = Int(CMTimeGetSeconds(movement.timestamp))
 

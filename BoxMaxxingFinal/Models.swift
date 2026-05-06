@@ -92,3 +92,36 @@ func findMove(_ id: String) -> Move? {
 func formatTime(_ seconds: Int) -> String {
     String(format: "%02d:%02d", seconds / 60, seconds % 60)
 }
+
+// MARK: - Demo Data
+
+/// Generates 10 dummy wrong movements across a 2-minute session for demo/presentation.
+/// Red = wrong technique (detected different move). Yellow = bad execution (right move, low confidence).
+func generateDemoWrongMovements() -> [WrongMovement] {
+    let lj = findMove("lj")!
+    let rj = findMove("rj")!
+
+    // Fixed timestamps spread across 2 minutes so the timeline looks realistic
+    let entries: [(secs: Int, expectedId: String, detectedId: String, conf: Float)] = [
+        (8,   "lj", "rj",  Float.random(in: 0.72...0.92)),  // red  — threw right instead of left
+        (19,  "rj", "rj",  Float.random(in: 0.42...0.68)),  // yellow — right move, weak execution
+        (31,  "lj", "lj",  Float.random(in: 0.50...0.72)),  // yellow — low confidence
+        (44,  "rj", "lj",  Float.random(in: 0.75...0.90)),  // red  — wrong side
+        (57,  "lj", "lj",  Float.random(in: 0.38...0.62)),  // yellow — very low confidence
+        (68,  "rj", "rj",  Float.random(in: 0.48...0.70)),  // yellow
+        (79,  "lj", "rj",  Float.random(in: 0.68...0.88)),  // red
+        (91,  "rj", "lj",  Float.random(in: 0.70...0.85)),  // red
+        (103, "lj", "lj",  Float.random(in: 0.44...0.66)),  // yellow
+        (115, "rj", "rj",  Float.random(in: 0.40...0.60)),  // yellow
+    ]
+
+    return entries.map { entry in
+        let expected = entry.expectedId == "lj" ? lj : rj
+        return WrongMovement(
+            timestamp:      CMTime(seconds: Double(entry.secs), preferredTimescale: 600),
+            expectedMove:   expected,
+            detectedMoveId: entry.detectedId,
+            confidence:     entry.conf
+        )
+    }
+}

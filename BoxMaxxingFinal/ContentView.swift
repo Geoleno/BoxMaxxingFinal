@@ -27,6 +27,14 @@ struct ContentView: View {
                     }
                     withAnimation(.easeInOut(duration: 0.25)) { route = .record }
                 }, onTestVideo: { _ in
+                    // Load demo data for presentation: The 1-2 combo (left jab + right jab), 2-minute session
+                    sessionState = SessionState(selectedComboId: "c1",
+                                               selectedMoveIds: ["lj", "rj"],
+                                               sessionLength: 2)
+                    SessionStore.shared.save(movements: generateDemoWrongMovements(),
+                                            videoURL: nil,
+                                            startDate: Date(),
+                                            duration: 120)
                     withAnimation(.easeInOut(duration: 0.25)) { route = .results }
                 })
                 .transition(.opacity)
