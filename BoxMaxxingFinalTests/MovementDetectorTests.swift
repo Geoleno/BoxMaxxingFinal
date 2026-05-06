@@ -11,6 +11,11 @@ final class MovementDetectorTests: XCTestCase {
         detector = MovementDetector()
     }
 
+    override func tearDown() {
+        detector = nil
+        super.tearDown()
+    }
+
     // MARK: - Helpers
 
     private func ts(_ seconds: Double) -> CMTime {

@@ -47,6 +47,9 @@ final class MovementDetector {
                                           CMTime(seconds: cooldownSeconds, preferredTimescale: 600))
             state = .cooldown(until: cooldownEnd)
             let matched = (label == expectedMoveId) && avgConfidence >= correctThreshold
+            if findMove(expectedMoveId) == nil {
+                assertionFailure("expectedMoveId '\(expectedMoveId)' not found in allMoves — check combo configuration")
+            }
             guard !matched, let expectedMove = findMove(expectedMoveId) else { return nil }
             return WrongMovement(timestamp: firstTimestamp,
                                  expectedMove: expectedMove,
