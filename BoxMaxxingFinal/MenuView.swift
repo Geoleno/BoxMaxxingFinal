@@ -31,25 +31,27 @@ struct MenuView: View {
     // MARK: - Title
 
     private var titleSection: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("BoxMaxxing")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(Color(UIColor.systemRed))
-                .tracking(-0.08)
-            Text("New Session")
+        VStack(alignment: .leading, spacing: 5) {
+//            Text("BoxMaxxing")
+//                .font(.system(size: 13, weight: .semibold))
+//                .foregroundColor(Color(UIColor.systemRed))
+//                .tracking(-0.08)
+            Text("Pick Your Combo!")
                 .font(.system(size: 30, weight: .bold))
-                .tracking(0.2)
-                .foregroundColor(Color(UIColor.label))
-            Text("Pick your combo, then train.")
-                .font(.system(size: 13))
-                .foregroundColor(Color(UIColor.secondaryLabel))
-                .tracking(-0.08)
+                .tracking(0.5)
+                .foregroundColor(Color(UIColor.systemRed))
+//            Text("Pick your combo, then train.")
+//                .font(.system(size: 13))
+//                .foregroundColor(Color(UIColor.secondaryLabel))
+//                .tracking(-0.08)
             HStack(spacing: 5) {
                 Image(systemName: "clock")
                     .font(.system(size: 12))
+                    .bold()
                     .foregroundColor(Color(UIColor.label))
                 Text("Session duration is 2 minutes")
                     .font(.system(size: 13))
+                    .bold()
                     .foregroundColor(Color(UIColor.label))
                     .tracking(-0.08)
             }
@@ -153,15 +155,15 @@ struct MenuView: View {
             }
             .disabled(!enabled)
 
-            Button(action: { showTestSheet = true }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "film.stack")
-                        .font(.system(size: 14))
-                    Text("Test with Video")
-                        .font(.system(size: 14, weight: .medium))
-                }
-                .foregroundColor(Color(UIColor.secondaryLabel))
-            }
+//            Button(action: { showTestSheet = true }) {
+//                HStack(spacing: 6) {
+//                    Image(systemName: "film.stack")
+//                        .font(.system(size: 14))
+//                    Text("Test with Video")
+//                        .font(.system(size: 14, weight: .medium))
+//                }
+//                .foregroundColor(Color(UIColor.secondaryLabel))
+//            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 26)
