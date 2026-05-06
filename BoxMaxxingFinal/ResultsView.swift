@@ -43,9 +43,9 @@ struct ResultsView: View {
                     .padding(.bottom, 8)
 
                     HStack(spacing: 8) {
-                        StatCard(label: "Wrong technique", value: "\(wrongTechniqueCount)", color: Color(UIColor.systemRed))
-                        StatCard(label: "Bad execution",  value: "\(badExecutionCount)",   color: Color(UIColor.systemYellow))
-                        StatCard(label: "Avg Conf",      value: "\(avgConf)%",          color: Color(UIColor.label))
+                        StatCard(label: "Wrong Technique", value: "\(wrongTechniqueCount)", color: Color(UIColor.systemRed))
+                        StatCard(label: "Bad Execution",  value: "\(badExecutionCount)",   color: Color(UIColor.systemYellow))
+                        StatCard(label: "Score",      value: "\(avgConf)%",          color: Color(UIColor.label))
                     }
                     .padding(.horizontal, 20)
                     .padding(.bottom, 20)
@@ -223,9 +223,11 @@ private struct StatCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.system(size: 13, weight: .regular))
+                .font(.system(size: 12, weight: .regular))
                 .foregroundColor(Color(UIColor.secondaryLabel))
                 .tracking(-0.08)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
             Text(value)
                 .font(.system(size: 28, weight: .bold))
                 .monospacedDigit()
@@ -260,7 +262,14 @@ private struct LegendDot: View {
 struct DetailSheetView: View {
     let movement: WrongMovement
     let videoURL: URL?
-    @StateObject private var playerHolder = PlayerHolder()
+    @StateObject private var clipHolder    = PlayerHolder()
+    @StateObject private var exampleHolder = PlayerHolder()
+
+    // Drop a video named "{moveId}_example.mp4" into the Xcode project to enable this section.
+    // e.g. lj_example.mp4, rj_example.mp4
+    private var exampleVideoURL: URL? {
+        Bundle.main.url(forResource: "\(movement.expectedMove.id)_example", withExtension: "mp4")
+    }
 
     private var accent: Color {
         Color.performanceColor(for: movement.confidence)
@@ -352,12 +361,23 @@ struct DetailSheetView: View {
 
                 if let url = videoURL {
                     SectionLabel("Your clip")
-                    VideoPlayer(player: playerHolder.player)
+                    VideoPlayer(player: clipHolder.player)
                         .aspectRatio(9/16, contentMode: .fit)
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                         .padding(.bottom, 20)
                         .onAppear {
-                            playerHolder.load(url: url, seekTo: movement.timestamp)
+                            clipHolder.load(url: url, seekTo: movement.timestamp)
+                        }
+                }
+
+                if let url = exampleVideoURL {
+                    SectionLabel("Good example")
+                    VideoPlayer(player: exampleHolder.player)
+                        .aspectRatio(9/16, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .padding(.bottom, 20)
+                        .onAppear {
+                            exampleHolder.load(url: url, seekTo: .zero)
                         }
                 }
 
@@ -379,7 +399,10 @@ struct DetailSheetView: View {
             }
             .padding(.horizontal, 20)
         }
-        .onDisappear { playerHolder.player.pause() }
+        .onDisappear {
+            clipHolder.player.pause()
+            exampleHolder.player.pause()
+        }
     }
 
     private func moveBadge(_ text: String) -> some View {
